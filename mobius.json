@@ -1,0 +1,43 @@
+{
+  "id": "contribute",
+  "name": "Contribute",
+  "version": "0.1.0",
+  "description": "See what your agent has proposed upstream — pull requests, issues, and comments across the Möbius ecosystem, from prepared to merged.",
+  "author": "mobius-os",
+  "license": "MIT",
+  "homepage": "https://github.com/mobius-os/app-contribute",
+  "icon": "icon.png",
+  "entry": "index.jsx",
+  "offline_capable": true,
+  "offline": {
+    "reads": true,
+    "writes": "none",
+    "execution": "none"
+  },
+  "permissions": {
+    "cross_app_access": "none",
+    "share_with_apps": "none",
+    "github_access": true
+  },
+  "runtime": {
+    "imports": [
+      "react",
+      "react-dom"
+    ],
+    "esm_deps": []
+  },
+  "schedule": {
+    "default": "0 7 * * *",
+    "job": "job.sh"
+  },
+  "source_files": [
+    "theme.js",
+    "domain.js",
+    "api.js",
+    "storage.js",
+    "ui/StatTiles.jsx",
+    "ui/ConnectionCard.jsx",
+    "ui/ContributionCard.jsx",
+    "ui/Feed.jsx"
+  ]
+}
