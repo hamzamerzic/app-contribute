@@ -4,12 +4,14 @@ import { ContributionCard } from './ContributionCard.jsx'
 // buckets; each renders as a section only when it has rows, so the layout
 // tightens around whatever the ledger actually holds:
 //
-//   Ready to propose — status=prepared, waiting on the owner's go-ahead. The
-//                      section hint tells the owner these need a "yes" — nothing
-//                      here has gone public.
-//   Open             — status draft/open, live on GitHub (refreshed on mount).
-//   History          — merged/closed/abandoned and any unknown future status.
-export function Feed({ groups }) {
+//   Ready to propose — status=prepared, waiting on the owner's go-ahead. These
+//                      cards carry the review flow (expand the staged plan,
+//                      Approve/Dismiss), so only this group gets the handlers.
+//   Open             — status submitting/draft/open: live on GitHub, or in
+//                      flight to it (refreshed on mount + daily).
+//   History          — merged/closed/commented/abandoned and any unknown
+//                      future status.
+export function Feed({ groups, onApprove, onDismiss, loadDiff }) {
   const { ready, open, history } = groups
   return (
     <>
@@ -17,11 +19,17 @@ export function Feed({ groups }) {
         <section className="co-section">
           <h2 className="co-section-title">Ready to propose</h2>
           <p className="co-section-hint">
-            Ask your agent to submit these — nothing goes public without your
+            Review and approve these — nothing goes public without your
             go-ahead.
           </p>
           {ready.map((rec) => (
-            <ContributionCard key={rec.id} rec={rec} />
+            <ContributionCard
+              key={rec.id}
+              rec={rec}
+              onApprove={onApprove}
+              onDismiss={onDismiss}
+              loadDiff={loadDiff}
+            />
           ))}
         </section>
       )}

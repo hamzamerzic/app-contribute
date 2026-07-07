@@ -4,12 +4,15 @@
 //
 //   theme.js    — the single app stylesheet (CSS)
 //   domain.js   — pure logic: grouping, counts, the batched live-refresh query
-//   storage.js  — the window.mobius.storage ledger read layer (+ offline cache)
+//   storage.js  — the window.mobius.storage ledger layer (+ offline cache,
+//                 the full-diff read, and the Dismiss CAS flip)
 //   api.js      — same-origin /api/github/* reads (status + read-only GraphQL)
 //   ui/*.jsx    — one React component per file (owned copies, not shared imports)
 //
 // Only App lives here: it owns ledger + connection state, runs the best-effort
-// live refresh, and composes the header, stat tiles, connection card, and feed.
+// live refresh, keeps prepared cards live (per-record subscribe + a rescan on
+// return), wires the review flow (Approve drafts the green-light chat message;
+// Dismiss CAS-abandons), and composes header, tiles, connection card, feed.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CSS } from './theme.js'
 import {
@@ -18,7 +21,7 @@ import {
   countStats,
   groupRecords,
 } from './domain.js'
-import { cacheFeed, loadLedger } from './storage.js'
+import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger } from './storage.js'
 import { fetchGithubStatus, fetchLiveStates } from './api.js'
 import { StatTiles } from './ui/StatTiles.jsx'
 import { ConnectionCard } from './ui/ConnectionCard.jsx'
@@ -168,6 +171,102 @@ export default function ContributeApp({ appId, token }) {
     return () => { cancelled = true }
   }, [token])
 
+  // Keep the actionable cards live. The agent flips a record from a chat turn
+  // (claim → submitting → draft/open), and the Dismiss write lands through the
+  // same runtime — subscribing repaints the card the moment the runtime sees
+  // either. subscribe() is per-exact-path (no prefix form), so watch only the
+  // records that can change under the partner's eyes; the rescan below covers
+  // everything else. Keyed on the joined path list so a status flip re-derives
+  // the watch set without resubscribing on unrelated record changes.
+  const watchKey = useMemo(() => records
+    .filter((r) => (r.status === 'prepared' || r.status === 'submitting') && r.path)
+    .map((r) => r.path)
+    .sort()
+    .join('\n'), [records])
+  useEffect(() => {
+    if (!watchKey) return undefined
+    const unsubs = watchKey.split('\n').map((path) =>
+      window.mobius.storage.subscribe(path, (value) => {
+        setRecords((prev) => {
+          const i = prev.findIndex((r) => r.path === path)
+          // A vanished record (null) is left for the rescan to reconcile —
+          // dropping it here would also fire on a transient read miss.
+          if (i === -1 || value == null || typeof value !== 'object') return prev
+          const merged = { ...value, path }
+          if (JSON.stringify(prev[i]) === JSON.stringify(merged)) return prev
+          const next = prev.slice()
+          next[i] = merged
+          return next
+        })
+      }))
+    return () => { unsubs.forEach((u) => u()) }
+  }, [watchKey])
+
+  // Rescan the ledger when the partner comes back to the app. The Approve flow
+  // walks them to a chat and back, and there is no prefix subscribe — the
+  // return visit is the moment to catch records the agent added, claimed, or
+  // finished while the app was hidden. Fresh (non-cache) results replace the
+  // feed and re-run the live refresh so GitHub state rides along.
+  useEffect(() => {
+    let running = false
+    async function rescan() {
+      if (running || document.visibilityState !== 'visible') return
+      running = true
+      try {
+        const ledger = await loadLedger()
+        if (!ledger.fromCache) {
+          setRecords(ledger.records)
+          setFromCache(false)
+          cacheFeed(ledger.records)
+          runLiveRefresh(ledger.records)
+        }
+      } finally {
+        running = false
+      }
+    }
+    document.addEventListener('visibilitychange', rescan)
+    window.addEventListener('focus', rescan)
+    return () => {
+      document.removeEventListener('visibilitychange', rescan)
+      window.removeEventListener('focus', rescan)
+    }
+  }, [runLiveRefresh])
+
+  // Approve = draft the green-light message into a new chat. Deliberately NO
+  // status write and no optimistic "agent working" state: the partner's Send
+  // in that chat IS the approval, so the card only claims what actually
+  // happened ("approval drafted") and repaints via its subscription when the
+  // agent claims the record.
+  const onApprove = useCallback((rec) => {
+    const draft = 'Approved contribution ' + rec.id +
+      ' ("' + (rec.title || 'untitled') + '") — submit it now per contributing.md.'
+    window.parent.postMessage(
+      { type: 'moebius:new-chat', draft },
+      window.location.origin)
+    window.mobius?.signal?.('approval_drafted', { id: rec.id })
+  }, [])
+
+  // Dismiss = CAS flip to abandoned (storage.js owns the If-Match dance). On
+  // success the record moves to History in place; on a conflict the feed is
+  // reloaded so the card shows whatever actually happened to it.
+  const onDismiss = useCallback(async (rec) => {
+    const outcome = await abandonPrepared({ appId, token, rec })
+    if (outcome.ok) {
+      // Pure updater — the feed cache catches up on the next rescan/mount,
+      // and the runtime mirror already holds the flipped record.
+      const flipped = { ...outcome.ok, path: rec.path }
+      setRecords((prev) => prev.map((r) => (r.id === rec.id ? flipped : r)))
+      window.mobius?.signal?.('contribution_dismissed', { id: rec.id })
+    } else if (outcome.conflict !== undefined || outcome.gone) {
+      const ledger = await loadLedger()
+      if (!ledger.fromCache) {
+        setRecords(ledger.records)
+        cacheFeed(ledger.records)
+      }
+    }
+    return outcome
+  }, [appId, token])
+
   const stats = useMemo(() => countStats(records), [records])
   const groups = useMemo(() => groupRecords(records), [records])
   const isEmpty = records.length === 0
@@ -181,7 +280,14 @@ export default function ContributeApp({ appId, token }) {
         <ConnectionCard conn={conn} token={token} onChanged={refreshConnection} />
         {/* Hold the feed area blank until the first load resolves so an empty
             ledger doesn't flash the sell-the-loop copy before data arrives. */}
-        {loading ? null : isEmpty ? <EmptyState /> : <Feed groups={groups} />}
+        {loading ? null : isEmpty ? <EmptyState /> : (
+          <Feed
+            groups={groups}
+            onApprove={onApprove}
+            onDismiss={onDismiss}
+            loadDiff={loadFullDiff}
+          />
+        )}
       </div>
     </div>
   )

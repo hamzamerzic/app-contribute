@@ -182,6 +182,7 @@ export const CSS = `
   background: var(--surface2, var(--surface)); color: var(--muted);
 }
 .co-chip.is-prepared,
+.co-chip.is-submitting,
 .co-chip.is-open {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
@@ -195,6 +196,45 @@ export const CSS = `
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
   font-size: 12px; color: var(--muted);
 }
+
+/* Review view: the staged plan a prepared card expands into. Prose stays in
+   the app font; the diff is monospace and scrolls INSIDE its own block (both
+   axes) so a wide hunk never stretches the card or the page. */
+.co-review-toggle { margin-top: 10px; }
+.co-review {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
+  margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--border);
+}
+.co-review-badge {
+  font-size: 11px; font-weight: 650; line-height: 1; padding: 5px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.co-review-title { font-size: 14px; font-weight: 650; line-height: 1.4; }
+.co-review-body {
+  margin: 0; align-self: stretch; font-family: var(--font); font-size: 13px;
+  line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.co-review-diffwrap {
+  align-self: stretch; display: flex; flex-direction: column;
+  align-items: flex-start; gap: 8px;
+}
+.co-review-diffstat {
+  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
+  color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.co-review-diff {
+  margin: 0; align-self: stretch; max-height: 320px; overflow: auto;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface2, var(--bg));
+  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
+  white-space: pre;
+}
+.co-review-link { font-size: 13px; color: var(--accent); }
+.co-review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.co-review-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.co-review-error { margin: 0; font-size: 13px; line-height: 1.5; color: var(--danger); }
 
 /* mobius-ui:Empty v1 — app-owned copy; library candidate. */
 .co-empty {

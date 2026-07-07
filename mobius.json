@@ -1,7 +1,7 @@
 {
   "id": "contribute",
   "name": "Contribute",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "See what your agent has proposed upstream \u2014 pull requests, issues, and comments across the M\u00f6bius ecosystem, from prepared to merged.",
   "author": "mobius-os",
   "license": "MIT",
@@ -30,11 +30,15 @@
     "default": "0 7 * * *",
     "job": "job.sh"
   },
+  "skills": [
+    "contributing.md"
+  ],
   "source_files": [
     "theme.js",
     "domain.js",
     "api.js",
     "storage.js",
+    "contributing.md",
     "ui/StatTiles.jsx",
     "ui/ConnectionCard.jsx",
     "ui/ContributionCard.jsx",

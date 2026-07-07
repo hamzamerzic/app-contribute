@@ -1,11 +1,16 @@
 #!/bin/bash
 # Contribute — daily ledger refresh (cron).
 #
-# For every ledger record that is still draft/open, ask GitHub for its live
-# state in ONE batched GraphQL call (aliased resource() nodes, ~1 rate-limit
-# point total), write back any change, and fire a celebratory push the first
-# time something merges. The mini-app UI does the same refresh on open; this
-# keeps the feed and the merged-count fresh even when nobody opens the app.
+# For every pr/issue ledger record that is still draft/open, ask GitHub for
+# its live state in ONE batched GraphQL call (aliased resource() nodes, ~1
+# rate-limit point total), write back any change, and fire a celebratory push
+# the first time something merges. The mini-app UI does the same refresh on
+# open; this keeps the feed and the merged-count fresh even when nobody opens
+# the app. The full status enum is prepared|submitting|draft|open|merged|
+# closed|commented|abandoned — this job tracks ONLY type pr|issue in status
+# draft|open and leaves every other record alone. Writes are CAS (If-Match on
+# the read's ETag) so the daily refresh can never clobber a concurrent writer
+# — the agent claiming/submitting a record, or the app's Dismiss button.
 #
 # Cron runs this as `mobius` with an EMPTY environment and passes the app's
 # numeric id as $1, so the script sets its own SERVICE_TOKEN + API_BASE_URL and
@@ -63,21 +68,35 @@ APP_ID = os.environ["APP_ID"]
 PREFIX = "contributions/"
 
 
-def _call(method, path, body=None):
+def _call(method, path, body=None, headers=None):
   url = API + path
-  headers = {"Authorization": "Bearer " + TOKEN}
+  hdrs = {"Authorization": "Bearer " + TOKEN}
+  if headers:
+    hdrs.update(headers)
   data = None
   if body is not None:
     data = json.dumps(body).encode("utf-8")
-    headers["Content-Type"] = "application/json"
-  req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    hdrs["Content-Type"] = "application/json"
+  req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
   with urllib.request.urlopen(req, timeout=15) as resp:
-    return resp.read()
+    return resp.read(), resp.headers
 
 
 def _get_json(path):
-  raw = _call("GET", path)
+  raw, _ = _call("GET", path)
   return json.loads(raw) if raw else None
+
+
+def _record_path(name):
+  return "/api/storage/apps/%s/%s%s" % (APP_ID, PREFIX, name)
+
+
+def _read_record(name):
+  # The storage GET sends an ETag only when the read opts into versioning;
+  # that tag is what makes the later PUT compare-and-swap.
+  raw, headers = _call("GET", _record_path(name), headers={"x-mobius-version": "1"})
+  rec = json.loads(raw) if raw else None
+  return rec, headers.get("ETag")
 
 
 # Enumerate the ledger, paging until the cursor is exhausted. The storage
@@ -110,11 +129,11 @@ for _page in range(2000):
 records = []
 for name in names:
   try:
-    rec = _get_json("/api/storage/apps/%s/%s%s" % (APP_ID, PREFIX, name))
+    rec, etag = _read_record(name)
   except urllib.error.HTTPError:
     continue
   if isinstance(rec, dict) and rec.get("id"):
-    records.append((name, rec))
+    records.append((name, rec, etag))
 
 
 def _is_target(rec):
@@ -126,7 +145,7 @@ def _is_target(rec):
   )
 
 
-targets = [(name, rec) for (name, rec) in records if _is_target(rec)]
+targets = [(name, rec, etag) for (name, rec, etag) in records if _is_target(rec)]
 if not targets:
   sys.exit(0)
 
@@ -134,9 +153,9 @@ if not targets:
 # GraphQL string-literal escaping the url needs.
 aliases = {}
 parts = []
-for i, (name, rec) in enumerate(targets):
+for i, (name, rec, etag) in enumerate(targets):
   alias = "r%d" % i
-  aliases[alias] = (name, rec)
+  aliases[alias] = (name, rec, etag)
   url_lit = json.dumps(rec["url"])
   parts.append(
     "%s: resource(url: %s) { __typename "
@@ -192,17 +211,53 @@ now = (
   .replace("+00:00", "Z")
 )
 
-for alias, (name, rec) in aliases.items():
+for alias, (name, rec, etag) in aliases.items():
   new_status = _live_status(data.get(alias))
   if not new_status or new_status == rec.get("status"):
     continue
   was = rec.get("status")
-  updated = dict(rec)
-  updated["status"] = new_status
-  updated["updated_at"] = now
-  try:
-    _call("PUT", "/api/storage/apps/%s/%s%s" % (APP_ID, PREFIX, name), updated)
-  except Exception:
+  # The GraphQL verdict is only valid for the item the query was built from;
+  # pin that identity so a 412 retry can't apply it to a repointed record.
+  query_url = rec.get("url")
+  query_type = rec.get("type")
+  query_number = rec.get("number")
+  # CAS write: If-Match pins the version this run read, so a concurrent
+  # writer (the agent claiming a record, the app's Dismiss) can never be
+  # clobbered. On 412 re-read, re-check the record is still one this job
+  # tracks AND still refers to the same PR/issue the verdict was computed
+  # for, then reapply ONLY this job's own fields (status, updated_at) onto
+  # the fresh record — dict(rec) preserves whatever fields others added.
+  applied = False
+  for _attempt in range(3):
+    updated = dict(rec)
+    updated["status"] = new_status
+    updated["updated_at"] = now
+    headers = {"If-Match": etag} if etag else {}
+    try:
+      _call("PUT", _record_path(name), updated, headers=headers)
+      applied = True
+      break
+    except urllib.error.HTTPError as exc:
+      if exc.code != 412:
+        break
+      try:
+        rec, etag = _read_record(name)
+      except Exception:
+        break
+      if not isinstance(rec, dict) or not _is_target(rec):
+        break  # someone moved it out of this job's scope — theirs wins
+      if (
+        rec.get("url") != query_url
+        or rec.get("type") != query_type
+        or (query_number is not None and rec.get("number") != query_number)
+      ):
+        break  # record now points at a different item — verdict is void; skip this run
+      if rec.get("status") == new_status:
+        break  # another writer already applied it (and owns the notify)
+      was = rec.get("status")
+    except Exception:
+      break
+  if not applied:
     continue
   if new_status == "merged" and was != "merged":
     title = rec.get("title") or "contribution"

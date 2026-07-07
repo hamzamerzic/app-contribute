@@ -22,17 +22,34 @@ contribution. This app is the dashboard for that loop:
   as <login>" with a Disconnect button. On an older platform the card says an
   update is needed instead.
 - **Feed**, grouped:
-  - **Ready to propose** — prepared but not yet submitted. Ask your agent to
-    submit these; nothing goes public without your yes.
-  - **Open** — draft/open PRs and issues, live on GitHub. Their state is
-    refreshed on open (and daily by a background job).
-  - **History** — merged, closed, and abandoned.
+  - **Ready to propose** — staged and waiting on your go-ahead. Each card
+    expands into a review of exactly what would go public: the action
+    ("New PR to…", "Comment on…"), the full body draft, the diff stat and an
+    excerpt, and the complete diff on demand. **Approve…** drafts the
+    approval message into a new chat — pressing Send there is the green
+    light your agent acts on; nothing is submitted by the tap itself.
+    **Dismiss** marks the record abandoned — a compare-and-swap write, so it
+    can never race a concurrent submit, which also means it needs a live
+    connection (offline, the app is read-only: the feed still renders from
+    its cache, but dismissing waits until you're back online). Records
+    staged by an older agent without a review plan still show the plain
+    card with both buttons.
+  - **Open** — draft/open PRs and issues live on GitHub, plus anything the
+    agent is submitting right now. State is refreshed on open (and daily by
+    a background job).
+  - **History** — merged, closed, commented, and abandoned.
 
 Beyond connecting/disconnecting your account, the app only *reads* GitHub.
 Every content write — fork, push, PR, comment — happens through your agent in
 chat, after you approve that specific action. The GitHub token stays
 server-side and never reaches this app; the connect flow talks only to the
 platform's own `/api/github/*` endpoints.
+
+The repo also ships `contributing.md`, the agent-side skill for the whole
+loop — studying existing upstream work, staging a reviewable plan here, the
+approval gate, and the exact command sequences. The manifest declares it
+under `skills`, and the platform installs it into the shared skills folder
+on install and update, so the skill always matches the app version.
 
 ## Requirements
 
@@ -60,14 +77,33 @@ shape:
   "number": 42,
   "url": "https://github.com/mobius-os/app-notes/pull/42",
   "title": "Fix note reordering",
-  "status": "prepared | draft | open | merged | closed | abandoned",
+  "status": "prepared | submitting | draft | open | merged | closed | commented | abandoned",
   "branch": "fix/notes-reorder",
   "chat_id": "…",
   "created_at": "2026-07-06T09:00:00Z",
   "updated_at": "2026-07-06T09:00:00Z",
-  "summary": "One-line, partner-facing description."
+  "summary": "One-line, partner-facing description.",
+  // On records staged for review (status=prepared), what the agent proposes
+  // to publish; the full diff lives beside the record as
+  // contributions/<id>.diff (raw text).
+  "plan": {
+    "action": "pr | issue | issue_comment | discussion_comment",
+    "repo": "mobius-os/app-notes",
+    "target_url": "…",          // for comments: the issue/discussion
+    "title": "…",
+    "body_draft": "…",          // the exact text that would go public
+    "branch": "…", "repo_path": "…",
+    "base_sha": "…", "head_sha": "…", "diff_sha256": "…",
+    "diff_stat": "…", "diff_excerpt": "…"
+  }
 }
 ```
+
+`submitting` means the agent has claimed the record and the action is in
+flight; `commented` is the terminal status for comment actions. The daily
+job and the dismiss flow both write with `If-Match` (compare-and-swap), so
+concurrent writers — the agent, the cron refresh, the Dismiss button — can
+never silently overwrite each other.
 
 ## License
 

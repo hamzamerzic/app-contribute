@@ -3,10 +3,18 @@
 //
 // Ledger records live one JSON file per contribution under contributions/.
 // The agent writes them from chat turns; the daily job.sh persists live
-// GitHub state back into them. Shape:
+// GitHub state back into them; this app writes two things of its own — the
+// offline feed cache and the Dismiss CAS flip (storage.js). Shape:
 //   { id, type: pr|issue|issue_comment|discussion_comment, repo, number?,
-//     url?, title, status: prepared|draft|open|merged|closed|abandoned,
-//     branch?, chat_id?, created_at, updated_at, summary }
+//     url?, title, status: prepared|submitting|draft|open|merged|closed|
+//     commented|abandoned, branch?, chat_id?, created_at, updated_at,
+//     summary, plan? }
+// A prepared record staged for review carries `plan`: { action, repo,
+// target_url?, title?, body_draft, branch?, repo_path?, base_sha?,
+// head_sha?, diff_sha256?, diff_stat?, diff_excerpt? } — the full diff
+// lives in the sibling storage file contributions/<id>.diff. `submitting`
+// means a session claimed the record (in flight); `commented` is the
+// terminal status for comment actions.
 
 export const TYPE_LABELS = {
   pr: 'Pull request',
@@ -17,15 +25,19 @@ export const TYPE_LABELS = {
 
 export const STATUS_LABELS = {
   prepared: 'Ready',
+  submitting: 'Submitting',
   draft: 'Draft',
   open: 'Open',
   merged: 'Merged',
   closed: 'Closed',
+  commented: 'Commented',
   abandoned: 'Abandoned',
 }
 
 // Feed groups: Ready to propose (waiting on the owner's go-ahead), Open
-// (live on GitHub), History (settled). An unknown future status lands in
+// (live on GitHub, or in flight to it — `submitting` sits here because the
+// agent has claimed it and it is seconds from public), History (settled:
+// merged/closed/commented/abandoned). An unknown future status lands in
 // History so it degrades to visible-but-quiet instead of vanishing.
 export function groupRecords(records) {
   const ready = []
@@ -33,7 +45,11 @@ export function groupRecords(records) {
   const history = []
   for (const rec of records) {
     if (rec.status === 'prepared') ready.push(rec)
-    else if (rec.status === 'draft' || rec.status === 'open') open.push(rec)
+    else if (
+      rec.status === 'submitting' ||
+      rec.status === 'draft' ||
+      rec.status === 'open'
+    ) open.push(rec)
     else history.push(rec)
   }
   const newestFirst = (a, b) =>
@@ -51,7 +67,11 @@ export function countStats(records) {
   let ready = 0
   for (const rec of records) {
     if (rec.status === 'merged') merged += 1
-    else if (rec.status === 'draft' || rec.status === 'open') open += 1
+    else if (
+      rec.status === 'submitting' ||
+      rec.status === 'draft' ||
+      rec.status === 'open'
+    ) open += 1  // submitting counts as Open so an in-flight record never vanishes from the tiles
     else if (rec.status === 'prepared') ready += 1
   }
   return { merged, open, ready }
