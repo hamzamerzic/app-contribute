@@ -28,9 +28,10 @@ contribution. This app is the dashboard for that loop:
     excerpt, and the complete diff on demand. **Approve…** drafts the
     approval message into a new chat — pressing Send there is the green
     light your agent acts on; nothing is submitted by the tap itself.
-    **Dismiss** marks the record abandoned — a compare-and-swap write, so it
-    can never race a concurrent submit, which also means it needs a live
-    connection (offline, the app is read-only: the feed still renders from
+    **Dismiss** marks the record abandoned — a compare-and-swap write when the
+    runtime returns a version (older runtimes fall back to a best-effort
+    re-read), so it avoids racing a concurrent submit; either way it needs a
+    live connection (offline, the app is read-only: the feed still renders from
     its cache, but dismissing waits until you're back online). Records
     staged by an older agent without a review plan still show the plain
     card with both buttons.
@@ -101,9 +102,11 @@ shape:
 
 `submitting` means the agent has claimed the record and the action is in
 flight; `commented` is the terminal status for comment actions. The daily
-job and the dismiss flow both write with `If-Match` (compare-and-swap), so
-concurrent writers — the agent, the cron refresh, the Dismiss button — can
-never silently overwrite each other.
+job and the dismiss flow both write with `If-Match` (compare-and-swap) when the
+runtime returns a version, so concurrent writers — the agent, the cron refresh,
+the Dismiss button — avoid silently overwriting each other. On older runtimes
+that don't return a version, Dismiss re-reads and re-checks the record before
+writing, while the cron refresh falls back to a plain best-effort write.
 
 ## License
 

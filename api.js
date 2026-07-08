@@ -22,11 +22,8 @@ export async function fetchGithubStatus(token) {
     const s = await r.json()
     return {
       state: s.connected ? 'connected' : 'disconnected',
-      connected: !!s.connected,
       login: s.login || '',
       deviceFlowAvailable: !!s.device_flow_available,
-      scopes: Array.isArray(s.scopes) ? s.scopes : [],
-      tokenSource: s.token_source || null,
     }
   } catch {
     // Network failure (offline, backend restarting) — not a platform verdict.

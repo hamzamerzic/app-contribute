@@ -10,9 +10,10 @@
 //   ui/*.jsx    — one React component per file (owned copies, not shared imports)
 //
 // Only App lives here: it owns ledger + connection state, runs the best-effort
-// live refresh, keeps prepared cards live (per-record subscribe + a rescan on
-// return), wires the review flow (Approve drafts the green-light chat message;
-// Dismiss CAS-abandons), and composes header, tiles, connection card, feed.
+// live refresh, keeps prepared cards live via a rescan when the partner returns
+// to the app, wires the review flow (Approve drafts the green-light chat
+// message; Dismiss CAS-abandons), and composes header, tiles, connection card,
+// feed.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CSS } from './theme.js'
 import {
@@ -100,19 +101,29 @@ export default function ContributeApp({ appId, token }) {
   useEffect(() => { recordsRef.current = records }, [records])
 
   // Best-effort live refresh of the open PR/issue records in ONE batched
-  // GraphQL round-trip. A null/failed result leaves stored state untouched
-  // (applyLiveStates passes records through unchanged), so a flaky network
-  // never blanks or downgrades the feed. Writes the offline cache when it runs.
-  const runLiveRefresh = useCallback(async (recs) => {
+  // GraphQL round-trip. Returns the refreshed array — a NEW array only when
+  // GitHub actually moved a record, the same reference otherwise (nothing to
+  // refresh, a null/failed result, or no change), so callers can detect "no
+  // change" with ===. A null/failed result leaves stored state untouched
+  // (applyLiveStates passes records through), so a flaky network never blanks
+  // or downgrades the feed. Pure fetch: the caller owns setRecords/cacheFeed.
+  const fetchRefreshed = useCallback(async (recs) => {
     const refresh = buildRefreshQuery(recs)
-    if (!refresh) return
+    if (!refresh) return recs
     const data = await fetchLiveStates(token, refresh.query)
-    const next = applyLiveStates(recs, refresh.aliases, data)
+    return applyLiveStates(recs, refresh.aliases, data)
+  }, [token])
+
+  // Refresh in place: apply the fresh states to both React state and the
+  // offline cache. Used by the connect-flow and return-to-app rescans, where
+  // there is no other pending write to fold the result into.
+  const runLiveRefresh = useCallback(async (recs) => {
+    const next = await fetchRefreshed(recs)
     if (next !== recs) {
       setRecords(next)
       cacheFeed(next)
     }
-  }, [token])
+  }, [fetchRefreshed])
 
   // Re-read connection status after an in-app connect/disconnect, and — when we
   // land connected and have a real (non-cached) ledger — re-run the live
@@ -147,15 +158,11 @@ export default function ContributeApp({ appId, token }) {
       if (ledger.fromCache) return
       let toCache = recs
       if (status.state === 'connected') {
-        const refresh = buildRefreshQuery(recs)
-        if (refresh) {
-          const data = await fetchLiveStates(token, refresh.query)
-          if (cancelled) return
-          const next = applyLiveStates(recs, refresh.aliases, data)
-          if (next !== recs) {
-            setRecords(next)
-            toCache = next
-          }
+        const next = await fetchRefreshed(recs)
+        if (cancelled) return
+        if (next !== recs) {
+          setRecords(next)
+          toCache = next
         }
       }
       cacheFeed(toCache)
@@ -169,44 +176,15 @@ export default function ContributeApp({ appId, token }) {
       })
     })
     return () => { cancelled = true }
-  }, [token])
+  }, [token, fetchRefreshed])
 
-  // Keep the actionable cards live. The agent flips a record from a chat turn
-  // (claim → submitting → draft/open), and the Dismiss write lands through the
-  // same runtime — subscribing repaints the card the moment the runtime sees
-  // either. subscribe() is per-exact-path (no prefix form), so watch only the
-  // records that can change under the partner's eyes; the rescan below covers
-  // everything else. Keyed on the joined path list so a status flip re-derives
-  // the watch set without resubscribing on unrelated record changes.
-  const watchKey = useMemo(() => records
-    .filter((r) => (r.status === 'prepared' || r.status === 'submitting') && r.path)
-    .map((r) => r.path)
-    .sort()
-    .join('\n'), [records])
-  useEffect(() => {
-    if (!watchKey) return undefined
-    const unsubs = watchKey.split('\n').map((path) =>
-      window.mobius.storage.subscribe(path, (value) => {
-        setRecords((prev) => {
-          const i = prev.findIndex((r) => r.path === path)
-          // A vanished record (null) is left for the rescan to reconcile —
-          // dropping it here would also fire on a transient read miss.
-          if (i === -1 || value == null || typeof value !== 'object') return prev
-          const merged = { ...value, path }
-          if (JSON.stringify(prev[i]) === JSON.stringify(merged)) return prev
-          const next = prev.slice()
-          next[i] = merged
-          return next
-        })
-      }))
-    return () => { unsubs.forEach((u) => u()) }
-  }, [watchKey])
-
-  // Rescan the ledger when the partner comes back to the app. The Approve flow
-  // walks them to a chat and back, and there is no prefix subscribe — the
-  // return visit is the moment to catch records the agent added, claimed, or
-  // finished while the app was hidden. Fresh (non-cache) results replace the
-  // feed and re-run the live refresh so GitHub state rides along.
+  // Rescan the ledger when the partner comes back to the app — the app's only
+  // liveness mechanism. The agent flips a record from a chat turn (claim →
+  // submitting → draft/open) while the app is hidden; the Approve flow walks
+  // the partner to a chat and back. The return visit is the moment to catch
+  // records the agent added, claimed, or finished, and Dismiss already updates
+  // its own card locally. Fresh (non-cache) results replace the feed and re-run
+  // the live refresh so GitHub state rides along.
   useEffect(() => {
     let running = false
     async function rescan() {
@@ -235,15 +213,26 @@ export default function ContributeApp({ appId, token }) {
   // Approve = draft the green-light message into a new chat. Deliberately NO
   // status write and no optimistic "agent working" state: the partner's Send
   // in that chat IS the approval, so the card only claims what actually
-  // happened ("approval drafted") and repaints via its subscription when the
-  // agent claims the record.
+  // happened ("approval drafted"), and the return-to-app rescan repaints it
+  // once the agent claims the record.
+  //
+  // Only the Möbius shell can receive that message: it opens the app in an
+  // iframe (window.parent !== window) and listens for moebius:new-chat. In the
+  // standalone PWA (/apps/contribute/) window.parent === window, so posting
+  // would go nowhere — report that honestly ({ok:false}) instead of claiming a
+  // draft that never happened, and let the card steer the partner back to the
+  // Möbius app where approval actually happens in a chat.
   const onApprove = useCallback((rec) => {
+    if (window.parent === window) {
+      return { ok: false, reason: 'standalone' }
+    }
     const draft = 'Approved contribution ' + rec.id +
       ' ("' + (rec.title || 'untitled') + '") — submit it now per contributing.md.'
     window.parent.postMessage(
       { type: 'moebius:new-chat', draft },
       window.location.origin)
     window.mobius?.signal?.('approval_drafted', { id: rec.id })
+    return { ok: true }
   }, [])
 
   // Dismiss = CAS flip to abandoned (storage.js owns the If-Match dance). On

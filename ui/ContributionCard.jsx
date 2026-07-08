@@ -101,13 +101,19 @@ function ReviewPlan({ rec, loadDiff }) {
 // The Approve/Dismiss row plus its outcome messaging; shared by the plan
 // review and the plan-less v1 fallback.
 function ReviewActions({ rec, onApprove, onDismiss }) {
-  const [drafted, setDrafted] = useState(false)
+  const [approveNote, setApproveNote] = useState(null)
   const [dismissing, setDismissing] = useState(false)
   const [note, setNote] = useState(null)
 
   function approve() {
-    onApprove(rec)
-    setDrafted(true)
+    const outcome = onApprove(rec) || {}
+    // Approve posts the green-light draft to the shell, which only exists when
+    // the app runs inside Möbius. Claim "drafted" only when it actually was; in
+    // the standalone PWA there is no shell to receive it (outcome.ok is false),
+    // so steer the partner back to the app instead of faking a success.
+    setApproveNote(outcome.ok
+      ? 'Approval drafted — press Send in the chat to give the green light. This card updates once your agent picks it up.'
+      : 'Open Contribute from the Möbius app to approve — approval happens in a chat.')
   }
 
   async function dismiss() {
@@ -144,12 +150,7 @@ function ReviewActions({ rec, onApprove, onDismiss }) {
           {dismissing ? 'Dismissing…' : 'Dismiss'}
         </button>
       </div>
-      {drafted && (
-        <p className="co-review-note">
-          Approval drafted — press Send in the chat to give the green light.
-          This card updates once your agent picks it up.
-        </p>
-      )}
+      {approveNote && <p className="co-review-note">{approveNote}</p>}
       {note && <p className="co-review-error">{note}</p>}
     </>
   )

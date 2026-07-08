@@ -8,9 +8,12 @@
 # open; this keeps the feed and the merged-count fresh even when nobody opens
 # the app. The full status enum is prepared|submitting|draft|open|merged|
 # closed|commented|abandoned — this job tracks ONLY type pr|issue in status
-# draft|open and leaves every other record alone. Writes are CAS (If-Match on
-# the read's ETag) so the daily refresh can never clobber a concurrent writer
-# — the agent claiming/submitting a record, or the app's Dismiss button.
+# draft|open and leaves every other record alone. Writes use compare-and-swap
+# (If-Match on the read's ETag) when the runtime returns one, so the daily
+# refresh avoids clobbering a concurrent writer — the agent claiming/submitting
+# a record, or the app's Dismiss button; older runtimes without an ETag fall
+# back to a best-effort write. On a lost race (412) the record is left for the
+# app's live refresh and the next daily run to reconcile.
 #
 # Cron runs this as `mobius` with an EMPTY environment and passes the app's
 # numeric id as $1, so the script sets its own SERVICE_TOKEN + API_BASE_URL and
@@ -216,48 +219,29 @@ for alias, (name, rec, etag) in aliases.items():
   if not new_status or new_status == rec.get("status"):
     continue
   was = rec.get("status")
-  # The GraphQL verdict is only valid for the item the query was built from;
-  # pin that identity so a 412 retry can't apply it to a repointed record.
-  query_url = rec.get("url")
-  query_type = rec.get("type")
-  query_number = rec.get("number")
-  # CAS write: If-Match pins the version this run read, so a concurrent
-  # writer (the agent claiming a record, the app's Dismiss) can never be
-  # clobbered. On 412 re-read, re-check the record is still one this job
-  # tracks AND still refers to the same PR/issue the verdict was computed
-  # for, then reapply ONLY this job's own fields (status, updated_at) onto
-  # the fresh record — dict(rec) preserves whatever fields others added.
-  applied = False
-  for _attempt in range(3):
-    updated = dict(rec)
-    updated["status"] = new_status
-    updated["updated_at"] = now
-    headers = {"If-Match": etag} if etag else {}
-    try:
-      _call("PUT", _record_path(name), updated, headers=headers)
-      applied = True
-      break
-    except urllib.error.HTTPError as exc:
-      if exc.code != 412:
-        break
-      try:
-        rec, etag = _read_record(name)
-      except Exception:
-        break
-      if not isinstance(rec, dict) or not _is_target(rec):
-        break  # someone moved it out of this job's scope — theirs wins
-      if (
-        rec.get("url") != query_url
-        or rec.get("type") != query_type
-        or (query_number is not None and rec.get("number") != query_number)
-      ):
-        break  # record now points at a different item — verdict is void; skip this run
-      if rec.get("status") == new_status:
-        break  # another writer already applied it (and owns the notify)
-      was = rec.get("status")
-    except Exception:
-      break
-  if not applied:
+  # One conditional write. If-Match pins the exact version this run read (and
+  # computed the GraphQL verdict from), so a concurrent writer — the agent
+  # claiming/submitting a record, the app's Dismiss — is not clobbered when the
+  # runtime returns an ETag; an ETag-less older runtime falls back to a blind
+  # write. dict(rec) reapplies ONLY this job's own fields (status, updated_at)
+  # and preserves whatever fields other writers added. On a 412 the record
+  # changed under us — skip it and let the app's live refresh and the next daily
+  # run re-read and reapply if it still needs it, rather than fight for the write.
+  updated = dict(rec)
+  updated["status"] = new_status
+  updated["updated_at"] = now
+  headers = {"If-Match": etag} if etag else {}
+  try:
+    _call("PUT", _record_path(name), updated, headers=headers)
+  except urllib.error.HTTPError as exc:
+    if exc.code == 412:
+      print("contribute: skip %s — changed under refresh (412)" % name,
+            file=sys.stderr)
+    else:
+      print("contribute: PUT %s failed (%s)" % (name, exc.code), file=sys.stderr)
+    continue
+  except Exception as exc:
+    print("contribute: PUT %s error: %s" % (name, exc), file=sys.stderr)
     continue
   if new_status == "merged" and was != "merged":
     title = rec.get("title") or "contribution"
