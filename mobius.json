@@ -1,7 +1,7 @@
 {
   "id": "contribute",
   "name": "Contribute",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "See what your agent has proposed upstream \u2014 pull requests, issues, and comments across the M\u00f6bius ecosystem, from prepared to merged.",
   "author": "mobius-os",
   "license": "MIT",
@@ -22,7 +22,9 @@
   "runtime": {
     "imports": [
       "react",
-      "react-dom"
+      "react-dom",
+      "marked",
+      "dompurify"
     ],
     "esm_deps": []
   },
@@ -36,11 +38,14 @@
   "source_files": [
     "theme.js",
     "domain.js",
+    "diff.js",
     "api.js",
     "storage.js",
     "contributing.md",
     "ui/StatTiles.jsx",
     "ui/ConnectionCard.jsx",
+    "ui/MarkdownView.jsx",
+    "ui/DiffView.jsx",
     "ui/ContributionCard.jsx",
     "ui/Feed.jsx"
   ]

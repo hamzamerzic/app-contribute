@@ -17,12 +17,12 @@ export const CSS = `
 
 /* mobius-ui:Scrollskin v2 — keep in sync; hidden by default, content stays scrollable. */
 .co-page,
-.co-review-diff {
+.co-diff-view {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .co-page::-webkit-scrollbar,
-.co-review-diff::-webkit-scrollbar {
+.co-diff-view::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;
@@ -235,24 +235,104 @@ export const CSS = `
   color: var(--accent);
 }
 .co-review-title { font-size: 14px; font-weight: 650; line-height: 1.4; }
-.co-review-body {
-  margin: 0; align-self: stretch; font-family: var(--font); font-size: 13px;
-  line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere;
+.co-review-coauthor {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 28px; padding: 5px 9px; border-radius: 8px;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green); font-size: 12px; line-height: 1.2;
+}
+.co-review-coauthor strong { color: var(--green); font-weight: 700; }
+.co-review-section {
+  align-self: stretch; display: flex; flex-direction: column; gap: 8px;
+}
+.co-review-section-title {
+  font-size: 12px; font-weight: 650; color: var(--muted);
+}
+.co-markdown {
+  font-size: 13px; line-height: 1.58; color: var(--text);
+  overflow-wrap: anywhere;
+}
+.co-markdown > * { margin: 0; }
+.co-markdown > * + * { margin-top: 9px; }
+.co-markdown h1,
+.co-markdown h2,
+.co-markdown h3 {
+  font-size: 14px; line-height: 1.35; font-weight: 700; text-wrap: balance;
+}
+.co-markdown ul,
+.co-markdown ol { padding-left: 20px; }
+.co-markdown li + li { margin-top: 4px; }
+.co-markdown a { color: var(--accent); }
+.co-markdown code {
+  font-family: var(--mono, var(--font)); font-size: 12px;
+  padding: 1px 5px; border-radius: 5px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+}
+.co-markdown pre {
+  overflow: auto; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface2, var(--bg));
+}
+.co-markdown pre code {
+  display: block; padding: 0; background: transparent; white-space: pre;
+}
+.co-markdown blockquote {
+  margin: 0; padding: 0 0 0 12px; border-left: 1px solid var(--border);
+  color: var(--muted);
 }
 .co-review-diffwrap {
-  align-self: stretch; display: flex; flex-direction: column;
-  align-items: flex-start; gap: 8px;
+  align-items: flex-start;
 }
 .co-review-diffstat {
   font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
   color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
 }
-.co-review-diff {
-  margin: 0; align-self: stretch; max-height: 320px; overflow: auto;
-  padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
+.co-diff-view {
+  align-self: stretch; max-height: 420px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface2, var(--bg));
-  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
-  white-space: pre;
+}
+.co-diff-file + .co-diff-file { border-top: 1px solid var(--border); }
+.co-diff-file-head {
+  position: sticky; top: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  min-width: max-content; padding: 8px 10px;
+  background: var(--surface2, var(--bg)); border-bottom: 1px solid var(--border);
+}
+.co-diff-file-name {
+  font-family: var(--mono, var(--font)); font-size: 12px; font-weight: 650;
+}
+.co-diff-file-stat {
+  font-family: var(--mono, var(--font)); font-size: 12px; color: var(--muted);
+}
+.co-diff-lines { min-width: max-content; padding: 4px 0; }
+.co-diff-row {
+  display: grid; grid-template-columns: 48px 48px 24px max-content;
+  min-width: max-content; font-family: var(--mono, var(--font));
+  font-size: 12px; line-height: 1.5;
+}
+.co-diff-row.is-add {
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+.co-diff-row.is-del {
+  background: color-mix(in srgb, var(--danger) 11%, transparent);
+}
+.co-diff-num {
+  padding: 0 8px; color: var(--muted); text-align: right;
+  user-select: none;
+}
+.co-diff-mark {
+  padding: 0 4px; color: var(--muted); user-select: none;
+}
+.co-diff-code { padding-right: 12px; white-space: pre; color: var(--text); }
+.co-diff-hunk,
+.co-diff-meta {
+  min-width: max-content; padding: 4px 10px;
+  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.45;
+  color: var(--muted); white-space: pre;
+}
+.co-diff-hunk {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
 }
 .co-review-link { font-size: 13px; color: var(--accent); }
 .co-review-actions { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
+import { DiffView } from './DiffView.jsx'
+import { MarkdownView } from './MarkdownView.jsx'
 
 // One ledger row. The title links to the PR/issue when a url is present (a
 // prepared record has none yet), the status chip carries the group's identity
@@ -14,9 +16,9 @@ import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
 //   - without one (a record staged by a v1-skill agent), the card stays the
 //     plain v1 row and the Approve/Dismiss row renders directly: the approval
 //     message only needs the id, and the agent still enforces the gate.
-// Approve never writes the record — it drafts the approval message into a new
-// chat, and the partner's Send there IS the green light — so the tap state
-// says exactly that. Dismiss CAS-flips to abandoned via storage.js.
+// Approve never writes the record — it sends the approval message through a
+// new chat, which is the green light the agent acts on. Dismiss CAS-flips to
+// abandoned via storage.js.
 
 const ACTION_LABELS = {
   pr: 'New PR to',
@@ -38,6 +40,8 @@ function ReviewPlan({ rec, loadDiff }) {
     (where ? ' ' + where : '')
   const hasDiffShape = Boolean(
     plan.diff_stat || plan.diff_excerpt || plan.diff_sha256)
+  const displayedDiff = diffState === 'loaded' ? fullDiff : plan.diff_excerpt
+  const isPr = plan.action === 'pr' || rec.type === 'pr'
 
   async function showFullDiff() {
     setDiffState('loading')
@@ -56,18 +60,26 @@ function ReviewPlan({ rec, loadDiff }) {
       {plan.title && plan.title !== rec.title ? (
         <div className="co-review-title">{plan.title}</div>
       ) : null}
+      {isPr ? (
+        <div className="co-review-coauthor" title="The contribution workflow adds this commit trailer before publishing.">
+          <span>Co-authored with</span>
+          <strong>Möbius Agent</strong>
+        </div>
+      ) : null}
       {plan.body_draft ? (
-        <pre className="co-review-body">{plan.body_draft}</pre>
+        <section className="co-review-section">
+          <div className="co-review-section-title">Description</div>
+          <MarkdownView markdown={plan.body_draft} />
+        </section>
       ) : null}
       {hasDiffShape && (
-        <div className="co-review-diffwrap">
+        <section className="co-review-section co-review-diffwrap">
+          <div className="co-review-section-title">Diff</div>
           {plan.diff_stat ? (
             <div className="co-review-diffstat">{plan.diff_stat}</div>
           ) : null}
-          {diffState === 'loaded' ? (
-            <pre className="co-review-diff">{fullDiff}</pre>
-          ) : plan.diff_excerpt ? (
-            <pre className="co-review-diff">{plan.diff_excerpt}</pre>
+          {displayedDiff ? (
+            <DiffView diff={displayedDiff} />
           ) : null}
           {diffState === 'loaded' ? null : diffState === 'missing' ? (
             <p className="co-review-note">No stored diff to show — ask your agent in chat for the full change.</p>
@@ -81,7 +93,7 @@ function ReviewPlan({ rec, loadDiff }) {
               {diffState === 'loading' ? 'Loading diff…' : 'View full diff'}
             </button>
           )}
-        </div>
+        </section>
       )}
       {typeof plan.target_url === 'string' &&
         plan.target_url.startsWith('https://github.com/') && (
@@ -104,15 +116,17 @@ function ReviewActions({ rec, onApprove, onDismiss }) {
   const [approveNote, setApproveNote] = useState(null)
   const [dismissing, setDismissing] = useState(false)
   const [note, setNote] = useState(null)
+  const isPr = rec.plan?.action === 'pr' || rec.type === 'pr'
+  const approveLabel = isPr ? 'Send PR for review' : 'Approve and send'
 
   function approve() {
     const outcome = onApprove(rec) || {}
-    // Approve posts the green-light draft to the shell, which only exists when
-    // the app runs inside Möbius. Claim "drafted" only when it actually was; in
-    // the standalone PWA there is no shell to receive it (outcome.ok is false),
-    // so steer the partner back to the app instead of faking a success.
+    // Approve posts the green-light request to the shell, which only exists
+    // when the app runs inside Möbius. Claim success only when the shell can
+    // receive it; in the standalone PWA there is no parent shell, so steer the
+    // partner back to the app instead of faking a send.
     setApproveNote(outcome.ok
-      ? 'Approval drafted — press Send in the chat to give the green light. This card updates once your agent picks it up.'
+      ? 'Sent to the approval chat. Your agent will claim this record; if this platform leaves the text in the composer, press Send once.'
       : 'Open Contribute from the Möbius app to approve — approval happens in a chat.')
   }
 
@@ -139,7 +153,7 @@ function ReviewActions({ rec, onApprove, onDismiss }) {
     <>
       <div className="co-review-actions">
         <button type="button" className="co-btn co-btn-primary" onClick={approve}>
-          Approve…
+          {approveLabel}
         </button>
         <button
           type="button"

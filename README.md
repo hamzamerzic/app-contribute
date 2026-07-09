@@ -24,10 +24,13 @@ contribution. This app is the dashboard for that loop:
 - **Feed**, grouped:
   - **Ready to propose** — staged and waiting on your go-ahead. Each card
     expands into a review of exactly what would go public: the action
-    ("New PR to…", "Comment on…"), the full body draft, the diff stat and an
-    excerpt, and the complete diff on demand. **Approve…** drafts the
-    approval message into a new chat — pressing Send there is the green
-    light your agent acts on; nothing is submitted by the tap itself.
+    ("New PR to…", "Comment on…"), the full markdown-rendered body draft, the
+    diff stat and an excerpt, and the complete structured diff on demand. PR
+    cards also show the Möbius Agent co-author tag that the contribution
+    workflow adds to the commit trailer. **Send PR for review** sends the
+    approval message into a new chat so the agent can claim the record and open
+    the draft PR; on older platform shells, the same message may open as a
+    draft and need one final Send tap.
     **Dismiss** marks the record abandoned — a compare-and-swap write when the
     runtime returns a version (older runtimes fall back to a best-effort
     re-read), so it avoids racing a concurrent submit; either way it needs a

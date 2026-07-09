@@ -151,8 +151,10 @@ short paragraph, closing with "staged in the Contribute app for your review".
 
 The yes arrives either as a plain yes in the current chat right after you
 proposed, or as a message (any chat, possibly days later) matching **"Approved
-contribution <id>"** (the Approve button drafts exactly this). Either way it
-approves ONE record. When it arrives in a fresh chat:
+contribution <id>"**. The Contribute app's approve button sends exactly this
+message when the platform supports app auto-send; older shells may leave it as
+a draft for the partner to send manually. Either way it approves ONE record.
+When it arrives in a fresh chat:
 
 1. **Locate the ledger** — the Contribute app's id (`GET /api/apps/`, slug
    `contribute`), or `$APP_STORAGE_DIR` if this is an app-attributed chat.
@@ -198,7 +200,7 @@ git checkout -b fix/<slug>-<short>
 # Möbius per-app-git branch inside /data/apps/<slug>:
 git reset --soft "$(git merge-base HEAD upstream)"
 git commit -m "<one line, generic>" \
-  -m "Co-Authored-By: Möbius Agent <mobius-agent@users.noreply.github.com>"
+  -m "Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>"
 gh repo fork --remote --remote-name fork   # inside the clone; idempotent
 git push fork HEAD    # forks are created async: on failure wait 2s, retry (3x)
 gh pr create -R <upstream-owner>/<repo> -H <login>:fix/<slug>-<short> --draft \
@@ -209,7 +211,7 @@ git checkout main     # INVARIANT
 ```
 
 `<login>` is the owner's login from the status payload. Two invariants: the
-**`Co-Authored-By: Möbius Agent` trailer on every contributed commit** (the
+**`Co-authored-by: Möbius Agent` trailer on every contributed commit** (the
 visible Möbius mark on GitHub — partner stays author, Möbius co-author), and
 **`git checkout main` before the turn ends** — the watcher auto-commits partner
 edits onto the checked-out branch and store updates merge to `main`, so a dir left

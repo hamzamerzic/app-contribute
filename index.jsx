@@ -11,9 +11,9 @@
 //
 // Only App lives here: it owns ledger + connection state, runs the best-effort
 // live refresh, keeps prepared cards live via a rescan when the partner returns
-// to the app, wires the review flow (Approve drafts the green-light chat
-// message; Dismiss CAS-abandons), and composes header, tiles, connection card,
-// feed.
+// to the app, wires the review flow (Approve sends the green-light chat
+// message through the shell; Dismiss CAS-abandons), and composes header, tiles,
+// connection card, feed.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CSS } from './theme.js'
 import {
@@ -180,11 +180,11 @@ export default function ContributeApp({ appId, token }) {
 
   // Rescan the ledger when the partner comes back to the app — the app's only
   // liveness mechanism. The agent flips a record from a chat turn (claim →
-  // submitting → draft/open) while the app is hidden; the Approve flow walks
-  // the partner to a chat and back. The return visit is the moment to catch
-  // records the agent added, claimed, or finished, and Dismiss already updates
-  // its own card locally. Fresh (non-cache) results replace the feed and re-run
-  // the live refresh so GitHub state rides along.
+  // submitting → draft/open) while the app is hidden; approval can move focus
+  // into a chat. The return visit is the moment to catch records the agent
+  // added, claimed, or finished, and Dismiss already updates its own card
+  // locally. Fresh (non-cache) results replace the feed and re-run the live
+  // refresh so GitHub state rides along.
   useEffect(() => {
     let running = false
     async function rescan() {
@@ -210,17 +210,16 @@ export default function ContributeApp({ appId, token }) {
     }
   }, [runLiveRefresh])
 
-  // Approve = draft the green-light message into a new chat. Deliberately NO
-  // status write and no optimistic "agent working" state: the partner's Send
-  // in that chat IS the approval, so the card only claims what actually
-  // happened ("approval drafted"), and the return-to-app rescan repaints it
-  // once the agent claims the record.
+  // Approve = send the green-light message into a new chat. Deliberately NO
+  // status write and no optimistic "agent working" state: the chat send is the
+  // approval, so the return-to-app rescan repaints the card once the agent
+  // claims the record.
   //
   // Only the Möbius shell can receive that message: it opens the app in an
   // iframe (window.parent !== window) and listens for moebius:new-chat. In the
   // standalone PWA (/apps/contribute/) window.parent === window, so posting
   // would go nowhere — report that honestly ({ok:false}) instead of claiming a
-  // draft that never happened, and let the card steer the partner back to the
+  // send that never happened, and let the card steer the partner back to the
   // Möbius app where approval actually happens in a chat.
   const onApprove = useCallback((rec) => {
     if (window.parent === window) {
@@ -229,9 +228,9 @@ export default function ContributeApp({ appId, token }) {
     const draft = 'Approved contribution ' + rec.id +
       ' ("' + (rec.title || 'untitled') + '") — submit it now per contributing.md.'
     window.parent.postMessage(
-      { type: 'moebius:new-chat', draft },
+      { type: 'moebius:new-chat', draft, autoSend: true },
       window.location.origin)
-    window.mobius?.signal?.('approval_drafted', { id: rec.id })
+    window.mobius?.signal?.('approval_requested', { id: rec.id })
     return { ok: true }
   }, [])
 
