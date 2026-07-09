@@ -6,14 +6,28 @@
 export const CSS = `
 /* mobius-ui:Root v1 — app-owned copy; library candidate. */
 .co-root {
-  box-sizing: border-box; position: relative; min-height: 100dvh;
-  overflow-x: clip;  /* clip, not hidden: stops x-bleed without becoming a
-                        scroll container (which would break sticky) */
+  box-sizing: border-box; position: relative; min-height: 0; height: 100%;
+  display: flex; flex-direction: column; overflow: hidden;
   background: var(--bg); color: var(--text); font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
 }
 .co-root *, .co-root *::before, .co-root *::after { box-sizing: inherit; }
 /* /mobius-ui:Root */
+
+/* mobius-ui:Scrollskin v2 — keep in sync; hidden by default, content stays scrollable. */
+.co-page,
+.co-review-diff {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.co-page::-webkit-scrollbar,
+.co-review-diff::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+/* /mobius-ui:Scrollskin */
 
 /* mobius-ui:Focus v1 — one keyboard-focus ring for every interactive
    control, so nothing ships without a visible focus indicator. */
@@ -36,24 +50,28 @@ export const CSS = `
 }
 /* /mobius-ui:ReducedMotion */
 
-.co-page { max-width: 680px; margin: 0 auto; padding: 0 16px 48px; }
+.co-page {
+  flex: 1; min-height: 0; width: min(100%, 680px); margin: 0 auto;
+  padding: 0 16px 48px; overflow-y: auto; overflow-x: hidden;
+  overscroll-behavior: contain;
+}
 
 .co-header {
   display: flex; align-items: center; gap: 11px;
   padding: max(16px, env(safe-area-inset-top)) 0 4px;
 }
 .co-brand-icon {
-  width: 34px; height: 34px; border-radius: 9px;
+  width: 34px; height: 34px; border-radius: 8px;
   object-fit: cover; flex-shrink: 0; display: block;
 }
 .co-brand-fallback {
-  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 8px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   font-size: 18px; font-weight: 700;
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   color: var(--accent);
 }
-.co-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: -0.015em; }
+.co-title { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: 0; }
 .co-subtitle { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 
 .co-offline-note { display: block; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
@@ -68,7 +86,7 @@ export const CSS = `
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 12px 14px;
 }
-.co-tile-value { font-size: 24px; font-weight: 650; line-height: 1.2; letter-spacing: -0.02em; }
+.co-tile-value { font-size: 24px; font-weight: 650; line-height: 1.2; letter-spacing: 0; }
 .co-tile-label { margin-top: 2px; font-size: 12px; color: var(--muted); }
 
 /* Connection card. The dot is decorative — the text always carries the
@@ -107,7 +125,7 @@ export const CSS = `
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 44px; padding: 10px 16px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  font-family: var(--font); font-size: 14px; font-weight: 600; cursor: pointer;
+  font-family: var(--font); font-size: 14px; font-weight: 500; cursor: pointer;
   transition: background .14s ease, border-color .14s ease, transform .1s ease;
 }
 .co-btn:active { transform: scale(0.97); }
@@ -122,16 +140,21 @@ export const CSS = `
 .co-conn-input {
   display: block; width: 100%; box-sizing: border-box; min-height: 44px;
   padding: 11px 12px; background: var(--bg); color: var(--text);
-  border: 1px solid var(--border); border-radius: 8px; outline: none;
+  border: 1px solid var(--border); border-radius: 10px; outline: none;
   font-family: var(--mono, var(--font)); font-size: 16px;
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
-.co-conn-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.co-conn-input:focus,
+.co-conn-input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
 /* /mobius-ui:Input */
 
 /* The one-time device code: large, monospaced, selectable as a whole. */
 .co-conn-code {
   font-family: var(--mono, var(--font)); font-size: 30px; font-weight: 700;
-  letter-spacing: 0.14em; text-align: center; padding: 14px 12px;
+  letter-spacing: 0; text-align: center; padding: 14px 12px;
   border-radius: 10px; background: var(--surface2, var(--bg));
   border: 1px dashed var(--border); color: var(--text); user-select: all;
 }
@@ -146,7 +169,7 @@ export const CSS = `
 .co-conn-error { margin: 2px 0 0; font-size: 13px; color: var(--danger); line-height: 1.45; }
 .co-conn-divider {
   display: flex; align-items: center; gap: 10px;
-  font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em;
+  font-size: 11px; color: var(--muted); letter-spacing: 0;
 }
 .co-conn-divider::before, .co-conn-divider::after {
   content: ''; flex: 1; height: 1px; background: var(--border);
