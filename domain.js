@@ -8,12 +8,12 @@
 //   { id, type: pr|issue|issue_comment|discussion_comment, repo, number?,
 //     url?, title, status: prepared|submitting|draft|open|merged|closed|
 //     commented|abandoned, branch?, chat_id?, created_at, updated_at,
-//     summary, plan? }
+//     summary, last_submit_error?, last_pushed_branch_url?, plan? }
 // A prepared record staged for review carries `plan`: { action, repo,
 // target_url?, title?, body_draft, branch?, repo_path?, base_sha?,
 // head_sha?, diff_sha256?, diff_stat?, diff_excerpt? } — the full diff
 // lives in the sibling storage file contributions/<id>.diff. `submitting`
-// means a session claimed the record (in flight); `commented` is the
+// means the platform submit endpoint claimed the record (in flight); `commented` is the
 // terminal status for comment actions.
 
 export const TYPE_LABELS = {
@@ -36,7 +36,7 @@ export const STATUS_LABELS = {
 
 // Feed groups: Ready to propose (waiting on the owner's go-ahead), Open
 // (live on GitHub, or in flight to it — `submitting` sits here because the
-// agent has claimed it and it is seconds from public), History (settled:
+// platform has claimed it and it is seconds from public), History (settled:
 // merged/closed/commented/abandoned). An unknown future status lands in
 // History so it degrades to visible-but-quiet instead of vanishing.
 export function groupRecords(records) {

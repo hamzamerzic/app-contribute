@@ -3,7 +3,7 @@
 // writers of its own — the read-side feed cache (feed-cache.json, there
 // only to serve the next offline open) and the Dismiss button, which
 // CAS-flips a prepared record to abandoned to avoid clobbering a concurrent
-// agent claim or submit — compare-and-swap when the runtime returns a version,
+// submit claim — compare-and-swap when the runtime returns a version,
 // falling back to a best-effort re-read before a blind write on older runtimes
 // that don't. Dismissal is ONLINE-ONLY (CAS needs a
 // live version read), which is why the manifest declares offline writes

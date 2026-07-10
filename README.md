@@ -22,16 +22,17 @@ contribution. This app is the dashboard for that loop:
   as <login>" with a Disconnect button. On an older platform the card says an
   update is needed instead.
 - **Feed**, grouped:
-  - **Ready to propose** — staged and waiting on your go-ahead. Each card
-    expands into a review of exactly what would go public: the action
-    ("New PR to…", "Comment on…"), the full markdown-rendered body draft, the
-    diff stat and an excerpt, and the complete structured diff on demand. PR
-    cards also show the Möbius Agent co-author tag that the contribution
-    workflow adds to the commit trailer. **Send PR for review** sends the
-    approval message into a new chat so the agent can claim the record and open
-    the draft PR; on older platform shells, the same message may open as a
-    draft and need one final Send tap.
-    **Dismiss** marks the record abandoned — a compare-and-swap write when the
+  - **Ready for review** — staged and waiting on your go-ahead. Each card
+    shows high-level review context first: repo, branch, diff stat, summary,
+    and the Möbius Agent co-author tag. Open the card to review exactly what
+    would go public: the action ("New PR to…", "Comment on…"), the full
+    markdown-rendered body draft, and a structured diff only when you ask for
+    the excerpt or full patch. **Approve draft PR** calls the platform submit
+    endpoint directly; the server recomputes the reviewed branch diff, pushes
+    to your fork, opens the draft PR, and records the URL. Non-PR records are
+    review-only for now; **Leave feedback** returns to the chat that prepared
+    the record. **Dismiss** marks the record
+    abandoned — a compare-and-swap write when the
     runtime returns a version (older runtimes fall back to a best-effort
     re-read), so it avoids racing a concurrent submit; either way it needs a
     live connection (offline, the app is read-only: the feed still renders from
@@ -43,11 +44,9 @@ contribution. This app is the dashboard for that loop:
     a background job).
   - **History** — merged, closed, commented, and abandoned.
 
-Beyond connecting/disconnecting your account, the app only *reads* GitHub.
-Every content write — fork, push, PR, comment — happens through your agent in
-chat, after you approve that specific action. The GitHub token stays
-server-side and never reaches this app; the connect flow talks only to the
-platform's own `/api/github/*` endpoints.
+The GitHub token stays server-side and never reaches this app. The app can read
+GitHub state and can call the single prepared-contribution submit endpoint after
+you approve a specific PR; it is not a general GitHub write proxy.
 
 The repo also ships `contributing.md`, the agent-side skill for the whole
 loop — studying existing upstream work, staging a reviewable plan here, the
@@ -87,6 +86,8 @@ shape:
   "created_at": "2026-07-06T09:00:00Z",
   "updated_at": "2026-07-06T09:00:00Z",
   "summary": "One-line, partner-facing description.",
+  "last_submit_error": "optional partner-actionable submit failure",
+  "last_pushed_branch_url": "optional branch URL if push succeeded before PR creation failed",
   // On records staged for review (status=prepared), what the agent proposes
   // to publish; the full diff lives beside the record as
   // contributions/<id>.diff (raw text).
@@ -103,8 +104,8 @@ shape:
 }
 ```
 
-`submitting` means the agent has claimed the record and the action is in
-flight; `commented` is the terminal status for comment actions. The daily
+`submitting` means the platform submit endpoint has claimed the record and the
+action is in flight; `commented` is the terminal status for comment actions. The daily
 job and the dismiss flow both write with `If-Match` (compare-and-swap) when the
 runtime returns a version, so concurrent writers — the agent, the cron refresh,
 the Dismiss button — avoid silently overwriting each other. On older runtimes

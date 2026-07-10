@@ -229,9 +229,8 @@ export function ConnectionCard({ conn, token, onChanged }) {
             {justConnected ? 'GitHub connected 🎉' : 'GitHub connected'}
           </p>
           <p className="co-conn-text">
-            Connected as <strong>{login}</strong>. Your agent can prepare
-            contributions and, with your go-ahead on each one, open them on
-            your behalf.
+            Connected as <strong>{login}</strong>. Your agent can prepare PRs;
+            approving one here opens the draft directly on your behalf.
           </p>
           {disconnectError && <p className="co-conn-error">{disconnectError}</p>}
           <div className="co-conn-actions">

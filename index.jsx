@@ -11,9 +11,9 @@
 //
 // Only App lives here: it owns ledger + connection state, runs the best-effort
 // live refresh, keeps prepared cards live via a rescan when the partner returns
-// to the app, wires the review flow (Approve sends the green-light chat
-// message through the shell; Dismiss CAS-abandons), and composes header, tiles,
-// connection card, feed.
+// to the app, wires the review flow (Approve calls the platform's direct PR
+// submit endpoint; Feedback returns to the source chat; Dismiss CAS-abandons),
+// and composes header, tiles, connection card, feed.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CSS } from './theme.js'
 import {
@@ -23,7 +23,7 @@ import {
   groupRecords,
 } from './domain.js'
 import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger } from './storage.js'
-import { fetchGithubStatus, fetchLiveStates } from './api.js'
+import { fetchGithubStatus, fetchLiveStates, submitContribution } from './api.js'
 import { StatTiles } from './ui/StatTiles.jsx'
 import { ConnectionCard } from './ui/ConnectionCard.jsx'
 import { Feed } from './ui/Feed.jsx'
@@ -179,12 +179,12 @@ export default function ContributeApp({ appId, token }) {
   }, [token, fetchRefreshed])
 
   // Rescan the ledger when the partner comes back to the app — the app's only
-  // liveness mechanism. The agent flips a record from a chat turn (claim →
-  // submitting → draft/open) while the app is hidden; approval can move focus
-  // into a chat. The return visit is the moment to catch records the agent
-  // added, claimed, or finished, and Dismiss already updates its own card
-  // locally. Fresh (non-cache) results replace the feed and re-run the live
-  // refresh so GitHub state rides along.
+  // liveness mechanism. A submit can flip a record (claim → submitting →
+  // draft/open) while the app is hidden, and feedback can move focus into a
+  // chat. The return visit is the moment to catch records the agent added or
+  // the platform submitted, and Dismiss already updates its own card locally.
+  // Fresh (non-cache) results replace the feed and re-run the live refresh so
+  // GitHub state rides along.
   useEffect(() => {
     let running = false
     async function rescan() {
@@ -210,27 +210,48 @@ export default function ContributeApp({ appId, token }) {
     }
   }, [runLiveRefresh])
 
-  // Approve = send the green-light message into a new chat. Deliberately NO
-  // status write and no optimistic "agent working" state: the chat send is the
-  // approval, so the return-to-app rescan repaints the card once the agent
-  // claims the record.
-  //
-  // Only the Möbius shell can receive that message: it opens the app in an
-  // iframe (window.parent !== window) and listens for moebius:new-chat. In the
-  // standalone PWA (/apps/contribute/) window.parent === window, so posting
-  // would go nowhere — report that honestly ({ok:false}) instead of claiming a
-  // send that never happened, and let the card steer the partner back to the
-  // Möbius app where approval actually happens in a chat.
-  const onApprove = useCallback((rec) => {
+  // Approve = direct PR submit. The platform claims the prepared record,
+  // recomputes the branch diff, pushes to the owner's fork, opens the draft PR,
+  // and returns the updated ledger record. On a partner-actionable failure the
+  // server rolls the record back to `prepared` with last_submit_error, and the
+  // card stays ready for feedback/retry instead of handing off to an agent chat.
+  const onApprove = useCallback(async (rec) => {
+    const outcome = await submitContribution({ appId, token, rec })
+    if (outcome.ok) {
+      const next = { ...outcome.ok, path: rec.path }
+      setRecords((prev) => prev.map((r) => (r.id === rec.id ? next : r)))
+      cacheFeed(recordsRef.current.map((r) => (r.id === rec.id ? next : r)))
+      window.mobius?.signal?.('contribution_submitted', {
+        id: rec.id,
+        url: outcome.url || next.url,
+      })
+      return { ok: true, record: next, url: outcome.url || next.url }
+    }
+    if (outcome.record) {
+      const next = { ...outcome.record, path: rec.path }
+      setRecords((prev) => prev.map((r) => (r.id === rec.id ? next : r)))
+      cacheFeed(recordsRef.current.map((r) => (r.id === rec.id ? next : r)))
+    }
+    return { error: outcome.error || 'Could not submit this PR.' }
+  }, [appId, token])
+
+  // Feedback = return to the chat that created the contribution, with a small
+  // draft already pointing at the exact record. Older records may not have
+  // chat_id; in that case the card says so rather than opening an ambiguous
+  // new chat.
+  const onFeedback = useCallback((rec) => {
     if (window.parent === window) {
       return { ok: false, reason: 'standalone' }
     }
-    const draft = 'Approved contribution ' + rec.id +
-      ' ("' + (rec.title || 'untitled') + '") — submit it now per contributing.md.'
+    if (!rec.chat_id) {
+      return { ok: false, reason: 'missing-chat' }
+    }
+    const draft = 'Feedback on contribution ' + rec.id +
+      ' ("' + (rec.title || 'untitled') + '"): '
     window.parent.postMessage(
-      { type: 'moebius:new-chat', draft, autoSend: true },
+      { type: 'moebius:open-chat', chatId: rec.chat_id, draft },
       window.location.origin)
-    window.mobius?.signal?.('approval_requested', { id: rec.id })
+    window.mobius?.signal?.('contribution_feedback_opened', { id: rec.id })
     return { ok: true }
   }, [])
 
@@ -272,6 +293,7 @@ export default function ContributeApp({ appId, token }) {
           <Feed
             groups={groups}
             onApprove={onApprove}
+            onFeedback={onFeedback}
             onDismiss={onDismiss}
             loadDiff={loadFullDiff}
           />

@@ -3,22 +3,21 @@ import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
 import { DiffView } from './DiffView.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
 
-// One ledger row. The title links to the PR/issue when a url is present (a
-// prepared record has none yet), the status chip carries the group's identity
-// in color, and the meta line reads type · repo#number · updated-time. Every
-// field is optional-tolerant — the ledger is written by the agent and cron, so
-// a missing summary or repo just drops that piece rather than breaking layout.
+// One ledger row. Pointer clicks on a linked PR/issue card open the target, and
+// pointer clicks on a prepared card open its review detail; keyboard users keep
+// the familiar visible link/button targets. The status chip carries the group's
+// identity in color, and the meta line reads type · repo#number · updated-time.
+// Every field is optional-tolerant — the ledger is written by the agent and
+// cron, so a missing summary or repo just drops that piece rather than breaking
+// layout.
 //
 // Prepared records grow a review flow when the feed passes the handlers:
-//   - with a `plan`, a Review toggle expands the staged plan — action badge,
-//     body draft, diff stat + excerpt, full diff on demand — above the
-//     Approve/Dismiss row.
-//   - without one (a record staged by a v1-skill agent), the card stays the
-//     plain v1 row and the Approve/Dismiss row renders directly: the approval
-//     message only needs the id, and the agent still enforces the gate.
-// Approve never writes the record — it sends the approval message through a
-// new chat, which is the green light the agent acts on. Dismiss CAS-flips to
-// abandoned via storage.js.
+//   - with a `plan`, the collapsed card shows only high-level context; Review
+//     expands the exact markdown body and an on-demand structured diff.
+//   - without one (a record staged by a v1-skill agent), the card keeps the
+//     plain fallback and Approve returns a re-stage error from the platform.
+// Approve calls the platform submit endpoint directly for PR plans; Feedback
+// returns to the source chat; Dismiss CAS-flips to abandoned via storage.js.
 
 const ACTION_LABELS = {
   pr: 'New PR to',
@@ -27,11 +26,62 @@ const ACTION_LABELS = {
   discussion_comment: 'Comment on',
 }
 
+function diffSummary(stat) {
+  const lines = String(stat || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (lines.length === 0) return ''
+  return lines[lines.length - 1]
+}
+
+function PlanSummary({ rec }) {
+  const plan = rec.plan || {}
+  const where = plan.repo || rec.repo || ''
+  const branch = plan.branch || rec.branch || ''
+  const summary = diffSummary(plan.diff_stat)
+  const isPr = plan.action === 'pr' || rec.type === 'pr'
+  return (
+    <div className="co-plan-summary">
+      <div className="co-plan-row">
+        {where ? <span>{where}</span> : null}
+        {branch ? <span>{branch}</span> : null}
+        {summary ? <span>{summary}</span> : null}
+      </div>
+      {isPr ? (
+        <div className="co-plan-coauthor" title="The prepared commit carries this GitHub co-author trailer.">
+          <span>Co-authored with</span>
+          <strong>Möbius Agent</strong>
+        </div>
+      ) : null}
+      {rec.last_submit_error ? (
+        <p className="co-review-error">{rec.last_submit_error}</p>
+      ) : null}
+      {typeof rec.last_pushed_branch_url === 'string' &&
+        rec.last_pushed_branch_url.startsWith('https://github.com/') ? (
+        <a
+          className="co-review-link"
+          href={rec.last_pushed_branch_url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          View pushed branch
+        </a>
+      ) : null}
+    </div>
+  )
+}
+
+function isInteractiveTarget(target) {
+  return !!target?.closest?.('button, a, input, textarea, select, [role="button"]')
+}
+
 // The staged plan, rendered for review. Shown only when rec.plan exists.
 function ReviewPlan({ rec, loadDiff }) {
   const plan = rec.plan
-  // idle → loading → loaded | missing; missing covers both "no .diff stored"
-  // and "unreadable", each an honest quiet label rather than a broken pane.
+  // idle → excerpt | loading → loaded | missing. Nothing diff-like is shown by
+  // default; the partner starts with the stat and opts into the excerpt/full
+  // patch when they need detail.
   const [diffState, setDiffState] = useState('idle')
   const [fullDiff, setFullDiff] = useState(null)
 
@@ -40,8 +90,16 @@ function ReviewPlan({ rec, loadDiff }) {
     (where ? ' ' + where : '')
   const hasDiffShape = Boolean(
     plan.diff_stat || plan.diff_excerpt || plan.diff_sha256)
-  const displayedDiff = diffState === 'loaded' ? fullDiff : plan.diff_excerpt
+  const displayedDiff = diffState === 'loaded'
+    ? fullDiff
+    : diffState === 'excerpt'
+      ? plan.diff_excerpt
+      : ''
   const isPr = plan.action === 'pr' || rec.type === 'pr'
+
+  function showExcerpt() {
+    setDiffState('excerpt')
+  }
 
   async function showFullDiff() {
     setDiffState('loading')
@@ -81,17 +139,30 @@ function ReviewPlan({ rec, loadDiff }) {
           {displayedDiff ? (
             <DiffView diff={displayedDiff} />
           ) : null}
-          {diffState === 'loaded' ? null : diffState === 'missing' ? (
+          {diffState === 'missing' ? (
             <p className="co-review-note">No stored diff to show — ask your agent in chat for the full change.</p>
           ) : (
-            <button
-              type="button"
-              className="co-btn co-btn-sm"
-              disabled={diffState === 'loading'}
-              onClick={showFullDiff}
-            >
-              {diffState === 'loading' ? 'Loading diff…' : 'View full diff'}
-            </button>
+            <div className="co-review-tools">
+              {plan.diff_excerpt && diffState === 'idle' ? (
+                <button
+                  type="button"
+                  className="co-btn co-btn-sm"
+                  onClick={showExcerpt}
+                >
+                  Show diff excerpt
+                </button>
+              ) : null}
+              {diffState !== 'loaded' ? (
+                <button
+                  type="button"
+                  className="co-btn co-btn-sm"
+                  disabled={diffState === 'loading'}
+                  onClick={showFullDiff}
+                >
+                  {diffState === 'loading' ? 'Loading diff…' : 'View full diff'}
+                </button>
+              ) : null}
+            </div>
           )}
         </section>
       )}
@@ -112,22 +183,39 @@ function ReviewPlan({ rec, loadDiff }) {
 
 // The Approve/Dismiss row plus its outcome messaging; shared by the plan
 // review and the plan-less v1 fallback.
-function ReviewActions({ rec, onApprove, onDismiss }) {
+function ReviewActions({ rec, onApprove, onFeedback, onDismiss }) {
   const [approveNote, setApproveNote] = useState(null)
+  const [approving, setApproving] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [note, setNote] = useState(null)
   const isPr = rec.plan?.action === 'pr' || rec.type === 'pr'
-  const approveLabel = isPr ? 'Send PR for review' : 'Approve and send'
 
-  function approve() {
-    const outcome = onApprove(rec) || {}
-    // Approve posts the green-light request to the shell, which only exists
-    // when the app runs inside Möbius. Claim success only when the shell can
-    // receive it; in the standalone PWA there is no parent shell, so steer the
-    // partner back to the app instead of faking a send.
-    setApproveNote(outcome.ok
-      ? 'Sent to the approval chat. Your agent will claim this record; if this platform leaves the text in the composer, press Send once.'
-      : 'Open Contribute from the Möbius app to approve — approval happens in a chat.')
+  async function approve() {
+    if (!isPr) return
+    setApproving(true)
+    setApproveNote(null)
+    setNote(null)
+    try {
+      const outcome = (await onApprove(rec)) || {}
+      if (outcome.ok) {
+        setApproveNote('Draft PR opened on GitHub.')
+      } else {
+        setNote(outcome.error || 'Could not submit this contribution.')
+      }
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  function feedback() {
+    setApproveNote(null)
+    setNote(null)
+    const outcome = (typeof onFeedback === 'function' && onFeedback(rec)) || {}
+    if (!outcome.ok) {
+      setNote(outcome.reason === 'missing-chat'
+        ? 'This older record does not know which chat created it.'
+        : 'Open Contribute from inside Möbius to jump back to the source chat.')
+    }
   }
 
   async function dismiss() {
@@ -152,8 +240,18 @@ function ReviewActions({ rec, onApprove, onDismiss }) {
   return (
     <>
       <div className="co-review-actions">
-        <button type="button" className="co-btn co-btn-primary" onClick={approve}>
-          {approveLabel}
+        {isPr ? (
+          <button
+            type="button"
+            className="co-btn co-btn-primary"
+            disabled={approving}
+            onClick={approve}
+          >
+            {approving ? 'Submitting…' : 'Approve draft PR'}
+          </button>
+        ) : null}
+        <button type="button" className="co-btn" onClick={feedback}>
+          Leave feedback
         </button>
         <button
           type="button"
@@ -164,13 +262,24 @@ function ReviewActions({ rec, onApprove, onDismiss }) {
           {dismissing ? 'Dismissing…' : 'Dismiss'}
         </button>
       </div>
+      {!isPr ? (
+        <p className="co-review-note">
+          Only draft PRs can be approved here right now.
+        </p>
+      ) : null}
       {approveNote && <p className="co-review-note">{approveNote}</p>}
       {note && <p className="co-review-error">{note}</p>}
     </>
   )
 }
 
-export function ContributionCard({ rec, onApprove, onDismiss, loadDiff }) {
+export function ContributionCard({
+  rec,
+  onApprove,
+  onFeedback,
+  onDismiss,
+  loadDiff,
+}) {
   const status = rec.status || 'prepared'
   const statusLabel = STATUS_LABELS[status] || status
   const typeLabel = TYPE_LABELS[rec.type] || rec.type || 'Contribution'
@@ -189,9 +298,30 @@ export function ContributionCard({ rec, onApprove, onDismiss, loadDiff }) {
     status === 'prepared' && typeof onApprove === 'function' &&
     typeof onDismiss === 'function'
   const hasPlan = reviewable && rec.plan && typeof rec.plan === 'object'
+  const wholeCardTarget = hasLink || hasPlan
+  const reviewLabel =
+    rec.plan?.action === 'pr' || rec.type === 'pr' ? 'Review PR' : 'Review'
+
+  function openCardTarget() {
+    if (hasPlan) {
+      setExpanded(true)
+      return
+    }
+    if (hasLink) {
+      window.open(rec.url, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  function handleCardClick(event) {
+    if (!wholeCardTarget || isInteractiveTarget(event.target)) return
+    openCardTarget()
+  }
 
   return (
-    <div className="co-card">
+    <div
+      className={`co-card${wholeCardTarget ? ' is-clickable' : ''}`}
+      onClick={handleCardClick}
+    >
       <div className="co-card-top">
         {hasLink ? (
           <a
@@ -218,6 +348,7 @@ export function ContributionCard({ rec, onApprove, onDismiss, loadDiff }) {
           ))}
         </div>
       )}
+      {hasPlan && !expanded ? <PlanSummary rec={rec} /> : null}
       {hasPlan && (
         <button
           type="button"
@@ -225,13 +356,18 @@ export function ContributionCard({ rec, onApprove, onDismiss, loadDiff }) {
           aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
         >
-          {expanded ? 'Hide review' : 'Review'}
+          {expanded ? 'Hide review' : reviewLabel}
         </button>
       )}
       {reviewable && (!hasPlan || expanded) && (
         <div className="co-review">
           {hasPlan && <ReviewPlan rec={rec} loadDiff={loadDiff} />}
-          <ReviewActions rec={rec} onApprove={onApprove} onDismiss={onDismiss} />
+          <ReviewActions
+            rec={rec}
+            onApprove={onApprove}
+            onFeedback={onFeedback}
+            onDismiss={onDismiss}
+          />
         </div>
       )}
     </div>

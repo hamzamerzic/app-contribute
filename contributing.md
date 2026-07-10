@@ -20,9 +20,9 @@ Three rules never bend. The rest of this doc assumes them and points back here.
    diff.** The allowlist below is exhaustive — never memory, storage, db, logs,
    creds, chat, or personal data. Re-read every changed line before proposing;
    the `body_draft` and the `.diff` are exactly what goes public.
-3. **Never submit stale work.** If the staged plan's `head_sha` or diff has
-   drifted since the partner reviewed it, do NOT submit — re-stage and tell them
-   what changed.
+3. **Never submit stale work.** If the staged plan's `base_sha`/`head_sha` or
+   canonical branch diff has drifted since the partner reviewed it, do NOT
+   submit — re-stage and tell them what changed.
 
 ---
 
@@ -109,20 +109,25 @@ don't propose.
 
 ## The approval gate
 
-Hard stop #1 is the gate. In practice: ask in plain words ("Want me to open this
-as a draft PR on <repo>?") and wait, or stage the plan and let the partner review
-it in the Contribute app. Anything but yes → stop; prepared-but-unapproved work
-stays `status: "prepared"` and waits — it costs nothing to leave it there. PRs
-open as **drafts** by default; the partner decides when one is ready for review.
+Hard stop #1 is the gate. In practice:
+
+1. Propose the contribution plainly ("Want me to prepare this as a draft PR on
+   <repo> for your review?").
+2. Wait for that yes.
+3. Prepare everything needed for review and direct submission, then stop.
+
+Anything but yes → stop. Preparing is still private: a local branch/commit and a
+Contribute record, not a fork, push, PR, issue, or comment. PRs open as
+**drafts** by default only after the partner presses Approve in Contribute.
 
 ---
 
-## Stage the plan
+## Prepare for review
 
-Nothing goes public here. Write whatever the study produced — comment,
-superseding PR, fresh PR or issue — as a `prepared` ledger record (endpoints in
-*The ledger*) with a `plan` object carrying everything the partner needs to
-review and a future session needs to execute:
+Nothing goes public here. For a PR, create a durable branch under `/data`, commit
+the exact source you want reviewed, and stage that branch as a `prepared` ledger
+record (endpoints in *The ledger*) with a `plan` object carrying everything
+Contribute needs to submit it directly after approval:
 
 ```
 plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
@@ -134,13 +139,16 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
 - `body_draft` is the FULL text you propose to publish — PR body, issue body, or
   comment, word for word. The partner reviews exactly this; never publish
   anything that differs from what they approved.
-- For code changes, store the full diff as a sibling `contributions/<id>.diff`
+- For PRs, `repo_path` MUST be a durable git checkout under `/data/apps/`,
+  `/data/platform`, or `/data/contributions/`; a `/tmp` clone does not survive
+  restart and cannot be approved with one click.
+- Commit the reviewed source before staging. The commit message MUST include:
+  `Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>`.
+- Store the full canonical diff as a sibling `contributions/<id>.diff`
   (raw-text PUT — see the ledger); put `diff_stat` and a ≤4 KB `diff_excerpt`
-  inline for the card, and record `base_sha`/`head_sha`/`diff_sha256` so a later
-  session can detect drift (Hard stop #3).
-- A branch MUST live under `/data` (the app's own repo) — a `/tmp` clone doesn't
-  survive a restart. With no durable branch, the `.diff` file IS the source of
-  truth.
+  inline for the card, and record `base_sha`/`head_sha`/`diff_sha256` so the
+  submit button can recompute the exact branch diff before pushing (Hard stop
+  #3). Compute the hash from the exact `.diff` bytes you store.
 
 Status stays `prepared`. Then tell the partner what you found and staged in one
 short paragraph, closing with "staged in the Contribute app for your review".
@@ -149,44 +157,32 @@ short paragraph, closing with "staged in the Contribute app for your review".
 
 ## The green light
 
-The yes arrives either as a plain yes in the current chat right after you
-proposed, or as a message (any chat, possibly days later) matching **"Approved
-contribution <id>"**. The Contribute app's approve button sends exactly this
-message when the platform supports app auto-send; older shells may leave it as
-a draft for the partner to send manually. Either way it approves ONE record.
-When it arrives in a fresh chat:
+The green light for a staged PR is the Approve button in Contribute. No agent
+turn is needed after that click. The platform endpoint:
 
-1. **Locate the ledger** — the Contribute app's id (`GET /api/apps/`, slug
-   `contribute`), or `$APP_STORAGE_DIR` if this is an app-attributed chat.
-2. **Read the record** — `GET .../contributions/<id>.json` with
-   `x-mobius-version: 1`; note the `ETag`. Missing → say so and stop.
-3. **Claim it** — PUT back `status: "submitting"` + fresh `updated_at`, sending
-   `If-Match: <etag>`. A **412** means it changed under you: re-read — if status
-   is no longer `prepared`, someone already handled it (submitted or dismissed);
-   say that and STOP. Never submit a record you didn't claim.
-4. **Check freshness (Hard stop #3)** — if `plan.head_sha` ≠ branch tip, or
-   `diff_sha256` ≠ the `.diff` file, the work drifted. If rebased or `base_sha`
-   moved, regenerate the diff from `base..HEAD` and compare. ANY mismatch → do
-   NOT submit; re-stage (back to `prepared` with the updated plan and diff, via
-   the CAS update below) and tell the partner what changed.
-5. **Execute** per action type using the sequences below, publishing exactly the
-   approved `body_draft`.
-6. **Record the outcome** — fill `url` (and `number` for PRs/issues), flip the
-   status (`pr`→`draft`, `issue`→`open`, comment→`commented`), and notify the
-   partner in partner-facing language with the link ("I opened the fix as a draft
-   on the notes app's project page — here's the link" beats reciting branches and
-   remotes). Want changes? The `fix/` branch is still there — push follow-ups to
-   the fork and the PR updates itself.
+1. claims the `prepared` record as `submitting`,
+2. verifies `plan.head_sha` still equals the branch tip, `diff_sha256` still
+   equals the stored `.diff`, and the canonical `base_sha..head_sha` branch diff
+   hashes to the same value,
+3. verifies the commit carries the Möbius Agent co-author trailer,
+4. pushes the branch to the owner's fork,
+5. creates a draft PR with the approved `title` and `body_draft`, and
+6. records `url`, `number`, and `status: "draft"` back into the ledger.
+
+If any preflight fails, the endpoint rolls the record back to `prepared` with
+`last_submit_error`; the partner can press Leave feedback to return to the
+source chat. Your job after feedback is to re-read the diff, fix/re-stage the
+record, and stop again.
 
 A record flipped to `abandoned` means the partner dropped it — never argue with
 one, never resurrect it unasked.
 
 ---
 
-## The command sequences
+## Prepare the branch
 
-Only after the green light. All paths end with a draft PR; they differ only in
-where the working tree lives.
+Run these during preparation, after the partner agrees to stage a PR for review.
+Do not fork, push, or create a PR here.
 
 ### An app with a real origin (most catalog apps)
 
@@ -201,16 +197,20 @@ git checkout -b fix/<slug>-<short>
 git reset --soft "$(git merge-base HEAD upstream)"
 git commit -m "<one line, generic>" \
   -m "Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>"
-gh repo fork --remote --remote-name fork   # inside the clone; idempotent
-git push fork HEAD    # forks are created async: on failure wait 2s, retry (3x)
-gh pr create -R <upstream-owner>/<repo> -H <login>:fix/<slug>-<short> --draft \
-  --title "<one line, generic>" --body "<what / why / how you tested it>
-
-Prepared by a Möbius agent with owner review."
+BASE_SHA="$(git merge-base HEAD upstream)"
+HEAD_SHA="$(git rev-parse HEAD)"
+git -c core.quotePath=false diff --no-ext-diff --no-color --binary \
+  --full-index --src-prefix=a/ --dst-prefix=b/ \
+  "$BASE_SHA..$HEAD_SHA" > /tmp/<record-id>.diff
+DIFF_SHA256="$(sha256sum /tmp/<record-id>.diff | awk '{print $1}')"
 git checkout main     # INVARIANT
 ```
 
-`<login>` is the owner's login from the status payload. Two invariants: the
+Then write the ledger record with `repo_path: "/data/apps/<slug>"`, `branch`,
+`base_sha: "$BASE_SHA"`, `head_sha: "$HEAD_SHA"`, `diff_sha256` from
+`$DIFF_SHA256`, `diff_stat`, and `diff_excerpt`.
+
+Two invariants: the
 **`Co-authored-by: Möbius Agent` trailer on every contributed commit** (the
 visible Möbius mark on GitHub — partner stays author, Möbius co-author), and
 **`git checkout main` before the turn ends** — the watcher auto-commits partner
@@ -221,15 +221,14 @@ stays for follow-ups; only the checkout returns.
 ### An app with no origin, or platform/shell
 
 **No origin** (installed from a manifest): derive the repo from `manifest_url`
-(`.../<org>/<repo>/<ref>/mobius.json` → `github.com/<org>/<repo>`), `git clone` to
-`/tmp`, `checkout -b fix/…`, copy the changed source over (re-read vs the
-allowlist), `commit` with the co-author trailer, then the same `gh repo fork` /
-`git push fork HEAD` (same 2s-retry) / `gh pr create … --draft`. The live app dir
-never branches, so it never leaves `main`; the `/tmp` clone is disposable (why the
-plan stores the `.diff`, not a `/tmp` branch).
+(`.../<org>/<repo>/<ref>/mobius.json` → `github.com/<org>/<repo>`), clone it into
+`/data/contributions/<record-id>/repo`, `checkout -b fix/…`, copy the changed
+source over (re-read vs the allowlist), and `commit` with the co-author trailer.
+Use that durable clone as `repo_path`. The live app dir never branches, so it
+never leaves `main`.
 
 **Platform/shell**: only when `/data/platform` has a real origin — same sequence
-from a branch there, draft PR against `mobius-os/mobius`, same back-to-`main`
+from a branch there, ledger `repo: "mobius-os/mobius"`, same back-to-`main`
 invariant. No origin → be honest: platform contributions need the updated
 platform bootstrap; app contributions still work.
 
@@ -273,10 +272,10 @@ curl -s -H "Authorization: Bearer $AGENT_TOKEN" "$API_BASE_URL/api/apps/" \
 ```
 
 **CAS governs every JSON RECORD write** — the same If-Match discipline as the
-green-light claim, because the record has three writers (you, the daily refresh
-job, the app's Dismiss button) and an unconditional PUT silently erases one. The
-`.diff` blob is exempt: it's written once alongside the prepared record, not
-concurrently edited.
+submit claim, because the record has four writers (you, the submit endpoint,
+the daily refresh job, the app's Dismiss button) and an unconditional PUT
+silently erases one. The `.diff` blob is exempt: it's written once alongside the
+prepared record, not concurrently edited.
 
 **Create** (on prepare) — `If-None-Match: *` so the PUT 412s if the id somehow
 exists (then pick a new id). A prepared record carries a `plan` and has NO public
@@ -292,8 +291,11 @@ curl -s -X PUT "$API_BASE_URL/api/storage/apps/<id>/contributions/<record-id>.js
   "summary": "<one line for the partner>",
   "plan": {"action": "pr", "repo": "<owner>/<repo>", "title": "<title>",
            "body_draft": "<full PR body, word for word>",
-           "branch": "fix/<slug>-<short>", "base_sha": "<sha>", "head_sha": "<sha>",
-           "diff_sha256": "<sha256 of the .diff>", "diff_stat": "<git diff --stat tail>"}
+           "branch": "fix/<slug>-<short>", "repo_path": "/data/apps/<slug>",
+           "base_sha": "<sha>", "head_sha": "<sha>",
+           "diff_sha256": "<sha256 of the .diff>",
+           "diff_stat": "<git diff --stat tail>",
+           "diff_excerpt": "<first reviewable hunk(s), ≤4 KB>"}
 }'
 ```
 
@@ -305,11 +307,11 @@ curl -s -X PUT "$API_BASE_URL/api/storage/apps/<id>/contributions/<record-id>.di
   --data-binary @/tmp/<record-id>.diff
 ```
 
-**Update** (claim, outcome write, re-stage, any status change) — read with
-`x-mobius-version: 1`, note the `ETag`, PUT the edited record with `If-Match`. A
-**412** means it changed under you: re-read, check the fresh status still allows
-your change (a claim needs `prepared`; an outcome write needs `submitting` — YOUR
-claim), reconcile, then retry with the new ETag:
+**Update** (re-stage or status changes) — read with `x-mobius-version: 1`, note
+the `ETag`, PUT the edited record with `If-Match`. For PR submission itself,
+Contribute's approve endpoint owns the claim/outcome write. A **412** means the
+record changed under you: re-read, check the fresh status still allows your
+change, reconcile, then retry with the new ETag:
 
 ```bash
 curl -si -H "Authorization: Bearer $AGENT_TOKEN" -H "x-mobius-version: 1" \
@@ -319,10 +321,11 @@ curl -si -H "Authorization: Bearer $AGENT_TOKEN" -H "x-mobius-version: 1" \
 
 `type` ∈ `pr | issue | issue_comment | discussion_comment`; `status` ∈ `prepared
 | submitting | draft | open | merged | closed | commented | abandoned`; `number`,
-`url`, `branch` are optional until they exist. `submitting` = a session claimed
-the record and the action is in flight; `commented` = terminal for comment
-actions. A record stuck in `submitting` with an old `updated_at` (crashed session)
-→ verify via `gh search` whether the action actually happened before redoing it.
+`url`, `branch` are optional until they exist. `submitting` = the approve endpoint
+claimed the record and the action is in flight; `commented` = terminal for
+comment actions. A record stuck in `submitting` with an old `updated_at` (crashed
+submit) → verify via `gh search` whether the action actually happened before
+redoing it.
 The daily refresh job only tracks `pr | issue` records in `draft | open`.
 
 App NOT installed: no staging, no review card, no tracking — but Hard stop #1

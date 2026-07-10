@@ -86,3 +86,50 @@ export function disconnect(token) {
     headers: authHeaders(token),
   })
 }
+
+// Approval button path: the platform claims the prepared PR record, recomputes
+// the actual branch diff, pushes the branch to the owner's fork, opens the
+// draft PR, and writes the GitHub URL back to the record. The token stays
+// server-side; this app receives only the updated ledger record or an
+// actionable error plus the rolled-back record when available.
+export async function submitContribution({ appId, token, rec }) {
+  try {
+    const r = await fetch(
+      '/api/github/contributions/' +
+        encodeURIComponent(appId) + '/' +
+        encodeURIComponent(rec.id) +
+        '/submit',
+      {
+        method: 'POST',
+        headers: authHeaders(token),
+      }
+    )
+    let body = null
+    try {
+      body = await r.json()
+    } catch {
+      body = null
+    }
+    if (r.ok) {
+      return {
+        ok: body?.record || null,
+        url: body?.url || '',
+      }
+    }
+    const detail = body?.detail
+    if (detail && typeof detail === 'object') {
+      return {
+        error: detail.message || 'Could not submit this PR.',
+        record: detail.record || null,
+      }
+    }
+    return {
+      error: typeof detail === 'string' ? detail : 'Could not submit this PR.',
+    }
+  } catch (err) {
+    if (window.mobius && window.mobius.online === false) {
+      return { error: 'You are offline — approval needs a connection.' }
+    }
+    return { error: String((err && err.message) || err) }
+  }
+}

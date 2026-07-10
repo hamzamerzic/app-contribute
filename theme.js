@@ -184,6 +184,12 @@ export const CSS = `
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: 13px 14px; margin-top: 8px;
 }
+.co-card.is-clickable { cursor: pointer; }
+@media (hover: hover) {
+  .co-card.is-clickable:hover {
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+  }
+}
 /* /mobius-ui:Card */
 
 .co-card-top {
@@ -219,6 +225,28 @@ export const CSS = `
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
   font-size: 12px; color: var(--muted);
 }
+.co-plan-summary {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
+  margin-top: 10px;
+}
+.co-plan-row {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  font-size: 12px; color: var(--muted);
+}
+.co-plan-row span {
+  min-height: 24px; display: inline-flex; align-items: center;
+  padding: 3px 8px; border-radius: 7px;
+  background: var(--surface2, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+  overflow-wrap: anywhere;
+}
+.co-plan-coauthor {
+  display: inline-flex; align-items: center; gap: 6px;
+  min-height: 26px; padding: 4px 8px; border-radius: 7px;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green); font-size: 12px; line-height: 1.2;
+}
+.co-plan-coauthor strong { color: var(--green); font-weight: 700; }
 
 /* Review view: the staged plan a prepared card expands into. Prose stays in
    the app font; the diff is monospace and scrolls INSIDE its own block (both
@@ -282,6 +310,7 @@ export const CSS = `
 .co-review-diffwrap {
   align-items: flex-start;
 }
+.co-review-tools { display: flex; flex-wrap: wrap; gap: 8px; }
 .co-review-diffstat {
   font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
   color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
