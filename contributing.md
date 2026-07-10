@@ -111,19 +111,19 @@ don't propose.
 
 Hard stop #1 is the gate. In practice:
 
-1. Propose the contribution plainly ("Want me to prepare this as a draft PR on
-   <repo> for your review?").
+1. Propose the contribution plainly ("Want me to prepare this PR privately in
+   Contribute for your review?").
 2. Wait for that yes.
 3. Prepare everything needed for review and direct submission, then stop.
 
 Anything but yes → stop. Preparing is still private: a local branch/commit and a
-Contribute record, not a fork, push, PR, issue, or comment. PRs open as
-**drafts** by default only after the partner presses Approve in Contribute.
+Contribute record, not a fork, push, PR, issue, or comment. The next public step
+happens only after the partner presses **Send PR for review** in Contribute.
 
 An unanswered, timed-out, disabled, or empty-response question card is **not**
-approval. If the approval surface expires or returns no answer, leave the
+approval. If the review surface expires or returns no answer, leave the
 prepared record private and ask again in plain chat or wait for the Contribute
-Approve button. Never treat `{}` / no selection as "yes" for a public action.
+Send button. Never treat `{}` / no selection as "yes" for a public action.
 
 ---
 
@@ -159,6 +159,12 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
   submit button can recompute the exact branch diff before pushing (Hard stop
   #3). Compute the hash from the exact `.diff` bytes you store.
 
+Before you tell the partner it is ready, review the staged record yourself:
+re-read the stored `.diff`, confirm the body draft is exactly what should be
+published, confirm no private data appears in the branch, commit message, branch
+name, body, or diff, and confirm the branch is back on `main` when the prep
+steps require it.
+
 Status stays `prepared`. Then tell the partner what you found and staged in one
 short paragraph, closing with "staged in the Contribute app for your review".
 
@@ -166,8 +172,8 @@ short paragraph, closing with "staged in the Contribute app for your review".
 
 ## The green light
 
-The green light for a staged PR is the Approve button in Contribute. No agent
-turn is needed after that click. The platform endpoint:
+The green light for a staged PR is the Send PR for review button in Contribute.
+No agent turn is needed after that click. The platform endpoint:
 
 1. claims the `prepared` record as `submitting`,
 2. verifies `plan.head_sha` still equals the branch tip, `diff_sha256` still
@@ -177,8 +183,8 @@ turn is needed after that click. The platform endpoint:
 4. normalizes the tip commit author/committer to the connected owner while
    preserving the reviewed diff,
 5. pushes the branch to the owner's fork,
-6. creates a draft PR with the approved `title` and `body_draft`, and
-7. records `url`, `number`, and `status: "draft"` back into the ledger.
+6. creates a review-ready PR with the approved `title` and `body_draft`, and
+7. records `url`, `number`, and `status: "open"` back into the ledger.
 
 If any preflight fails, the endpoint rolls the record back to `prepared` with
 `last_submit_error`; the partner can press Leave feedback to return to the

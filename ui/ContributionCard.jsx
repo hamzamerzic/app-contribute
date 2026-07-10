@@ -15,8 +15,8 @@ import { MarkdownView } from './MarkdownView.jsx'
 //   - with a `plan`, the collapsed card shows only high-level context; Review
 //     expands the exact markdown body and an on-demand structured diff.
 //   - without one (a record staged by a v1-skill agent), the card keeps the
-//     plain fallback and Approve returns a re-stage error from the platform.
-// Approve calls the platform submit endpoint directly for PR plans; Feedback
+//     plain fallback and Send returns a re-stage error from the platform.
+// Send calls the platform submit endpoint directly for PR plans; Feedback
 // returns to the source chat; Dismiss CAS-flips to abandoned via storage.js.
 
 const ACTION_LABELS = {
@@ -74,6 +74,64 @@ function PlanSummary({ rec }) {
 
 function isInteractiveTarget(target) {
   return !!target?.closest?.('button, a, input, textarea, select, [role="button"]')
+}
+
+function attentionTitle(attention) {
+  return attention?.title || 'Needs attention'
+}
+
+function attentionMessage(attention) {
+  return attention?.message || 'There is new activity on GitHub.'
+}
+
+function attentionDraft(rec) {
+  const attention = rec.attention || {}
+  const bits = [
+    'Please sort out this upstream contribution:',
+    rec.title ? '"' + rec.title + '"' : '',
+    rec.repo ? '(' + rec.repo + ')' : '',
+  ].filter(Boolean)
+  const details = [
+    attention.title || '',
+    attention.message || '',
+    attention.url || rec.url || '',
+  ].filter(Boolean)
+  return bits.join(' ') + (details.length ? '\n\nContext:\n' + details.join('\n') : '')
+}
+
+function AttentionCallout({ rec, onFeedback }) {
+  const attention = rec.attention || {}
+  if (!rec.needs_attention && !attention.title && !attention.message) return null
+
+  function handleAskAgent() {
+    if (typeof onFeedback !== 'function') return
+    onFeedback(rec, { draft: attentionDraft(rec) })
+  }
+
+  return (
+    <div className="co-attention" role="status">
+      <div className="co-attention-copy">
+        <div className="co-attention-title">{attentionTitle(attention)}</div>
+        <p className="co-attention-text">{attentionMessage(attention)}</p>
+        {typeof attention.url === 'string' &&
+          attention.url.startsWith('https://github.com/') ? (
+          <a
+            className="co-review-link"
+            href={attention.url}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View activity on GitHub
+          </a>
+        ) : null}
+      </div>
+      {typeof onFeedback === 'function' ? (
+        <button type="button" className="co-btn co-btn-sm" onClick={handleAskAgent}>
+          Draft follow-up
+        </button>
+      ) : null}
+    </div>
+  )
 }
 
 // The staged plan, rendered for review. Shown only when rec.plan exists.
@@ -181,34 +239,34 @@ function ReviewPlan({ rec, loadDiff }) {
   )
 }
 
-// The Approve/Dismiss row plus its outcome messaging; shared by the plan
+// The Send/Dismiss row plus its outcome messaging; shared by the plan
 // review and the plan-less v1 fallback.
-function ReviewActions({ rec, onApprove, onFeedback, onDismiss }) {
-  const [approveNote, setApproveNote] = useState(null)
-  const [approving, setApproving] = useState(false)
+function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
+  const [sendNote, setSendNote] = useState(null)
+  const [sending, setSending] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [note, setNote] = useState(null)
   const isPr = rec.plan?.action === 'pr' || rec.type === 'pr'
 
-  async function approve() {
+  async function send() {
     if (!isPr) return
-    setApproving(true)
-    setApproveNote(null)
+    setSending(true)
+    setSendNote(null)
     setNote(null)
     try {
-      const outcome = (await onApprove(rec)) || {}
+      const outcome = (await onSend(rec)) || {}
       if (outcome.ok) {
-        setApproveNote('Draft PR opened on GitHub.')
+        setSendNote('Pull request opened on GitHub for review.')
       } else {
         setNote(outcome.error || 'Could not submit this contribution.')
       }
     } finally {
-      setApproving(false)
+      setSending(false)
     }
   }
 
   function feedback() {
-    setApproveNote(null)
+    setSendNote(null)
     setNote(null)
     const outcome = (typeof onFeedback === 'function' && onFeedback(rec)) || {}
     if (!outcome.ok) {
@@ -244,10 +302,10 @@ function ReviewActions({ rec, onApprove, onFeedback, onDismiss }) {
           <button
             type="button"
             className="co-btn co-btn-primary"
-            disabled={approving}
-            onClick={approve}
+            disabled={sending}
+            onClick={send}
           >
-            {approving ? 'Submitting…' : 'Approve draft PR'}
+            {sending ? 'Sending…' : 'Send PR for review'}
           </button>
         ) : null}
         <button type="button" className="co-btn" onClick={feedback}>
@@ -264,10 +322,10 @@ function ReviewActions({ rec, onApprove, onFeedback, onDismiss }) {
       </div>
       {!isPr ? (
         <p className="co-review-note">
-          Only draft PRs can be approved here right now.
+          Only prepared PRs can be sent to GitHub from here right now.
         </p>
       ) : null}
-      {approveNote && <p className="co-review-note">{approveNote}</p>}
+      {sendNote && <p className="co-review-note">{sendNote}</p>}
       {note && <p className="co-review-error">{note}</p>}
     </>
   )
@@ -275,7 +333,7 @@ function ReviewActions({ rec, onApprove, onFeedback, onDismiss }) {
 
 export function ContributionCard({
   rec,
-  onApprove,
+  onSend,
   onFeedback,
   onDismiss,
   loadDiff,
@@ -295,7 +353,7 @@ export function ContributionCard({
   const hasLink =
     typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
   const reviewable =
-    status === 'prepared' && typeof onApprove === 'function' &&
+    status === 'prepared' && typeof onSend === 'function' &&
     typeof onDismiss === 'function'
   const hasPlan = reviewable && rec.plan && typeof rec.plan === 'object'
   const wholeCardTarget = hasLink || hasPlan
@@ -348,6 +406,7 @@ export function ContributionCard({
           ))}
         </div>
       )}
+      <AttentionCallout rec={rec} onFeedback={onFeedback} />
       {hasPlan && !expanded ? <PlanSummary rec={rec} /> : null}
       {hasPlan && (
         <button
@@ -364,7 +423,7 @@ export function ContributionCard({
           {hasPlan && <ReviewPlan rec={rec} loadDiff={loadDiff} />}
           <ReviewActions
             rec={rec}
-            onApprove={onApprove}
+            onSend={onSend}
             onFeedback={onFeedback}
             onDismiss={onDismiss}
           />

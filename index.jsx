@@ -11,7 +11,7 @@
 //
 // Only App lives here: it owns ledger + connection state, runs the best-effort
 // live refresh, keeps prepared cards live via a rescan when the partner returns
-// to the app, wires the review flow (Approve calls the platform's direct PR
+// to the app, wires the review flow (Send calls the platform's direct PR
 // submit endpoint; Feedback returns to the source chat; Dismiss CAS-abandons),
 // and composes header, tiles, connection card, feed.
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -210,12 +210,12 @@ export default function ContributeApp({ appId, token }) {
     }
   }, [runLiveRefresh])
 
-  // Approve = direct PR submit. The platform claims the prepared record,
-  // recomputes the branch diff, pushes to the owner's fork, opens the draft PR,
+  // Send = direct PR submit. The platform claims the prepared record,
+  // recomputes the branch diff, pushes to the owner's fork, opens the PR,
   // and returns the updated ledger record. On a partner-actionable failure the
   // server rolls the record back to `prepared` with last_submit_error, and the
   // card stays ready for feedback/retry instead of handing off to an agent chat.
-  const onApprove = useCallback(async (rec) => {
+  const onSend = useCallback(async (rec) => {
     const outcome = await submitContribution({ appId, token, rec })
     if (outcome.ok) {
       const next = { ...outcome.ok, path: rec.path }
@@ -236,18 +236,21 @@ export default function ContributeApp({ appId, token }) {
   }, [appId, token])
 
   // Feedback = return to the chat that created the contribution, with a small
-  // draft already pointing at the exact record. Older records may not have
+  // draft already pointing at the exact record. Attention follow-ups can pass
+  // a more specific draft. Older records may not have
   // chat_id; in that case the card says so rather than opening an ambiguous
   // new chat.
-  const onFeedback = useCallback((rec) => {
+  const onFeedback = useCallback((rec, opts = {}) => {
     if (window.parent === window) {
       return { ok: false, reason: 'standalone' }
     }
     if (!rec.chat_id) {
       return { ok: false, reason: 'missing-chat' }
     }
-    const draft = 'Feedback on contribution ' + rec.id +
+    const draft = opts.draft || (
+      'Feedback on contribution ' + rec.id +
       ' ("' + (rec.title || 'untitled') + '"): '
+    )
     window.parent.postMessage(
       { type: 'moebius:open-chat', chatId: rec.chat_id, draft },
       window.location.origin)
@@ -292,7 +295,7 @@ export default function ContributeApp({ appId, token }) {
         {loading ? null : isEmpty ? <EmptyState /> : (
           <Feed
             groups={groups}
-            onApprove={onApprove}
+            onSend={onSend}
             onFeedback={onFeedback}
             onDismiss={onDismiss}
             loadDiff={loadFullDiff}

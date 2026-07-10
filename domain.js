@@ -8,7 +8,8 @@
 //   { id, type: pr|issue|issue_comment|discussion_comment, repo, number?,
 //     url?, title, status: prepared|submitting|draft|open|merged|closed|
 //     commented|abandoned, branch?, chat_id?, created_at, updated_at,
-//     summary, last_submit_error?, last_pushed_branch_url?, plan? }
+//     summary, last_submit_error?, last_pushed_branch_url?,
+//     needs_attention?, attention?, plan? }
 // A prepared record staged for review carries `plan`: { action, repo,
 // target_url?, title?, body_draft, branch?, repo_path?, base_sha?,
 // head_sha?, diff_sha256?, diff_stat?, diff_excerpt? } — the full diff

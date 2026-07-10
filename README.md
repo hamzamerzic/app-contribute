@@ -27,9 +27,9 @@ contribution. This app is the dashboard for that loop:
     and the Möbius Agent co-author tag. Open the card to review exactly what
     would go public: the action ("New PR to…", "Comment on…"), the full
     markdown-rendered body draft, and a structured diff only when you ask for
-    the excerpt or full patch. **Approve draft PR** calls the platform submit
+    the excerpt or full patch. **Send PR for review** calls the platform submit
     endpoint directly; the server recomputes the reviewed branch diff, pushes
-    to your fork, opens the draft PR, and records the URL. Non-PR records are
+    to your fork, opens the PR on GitHub, and records the URL. Non-PR records are
     review-only for now; **Leave feedback** returns to the chat that prepared
     the record. **Dismiss** marks the record
     abandoned — a compare-and-swap write when the
@@ -39,9 +39,9 @@ contribution. This app is the dashboard for that loop:
     its cache, but dismissing waits until you're back online). Records
     staged by an older agent without a review plan still show the plain
     card with both buttons.
-  - **Open** — draft/open PRs and issues live on GitHub, plus anything the
-    agent is submitting right now. State is refreshed on open (and daily by
-    a background job).
+  - **Open** — PRs and issues live on GitHub, plus anything the agent is
+    submitting right now. State is refreshed on open; the daily background job
+    also checks for comments, reviews, and failing checks that need follow-up.
   - **History** — merged, closed, commented, and abandoned.
 
 The GitHub token stays server-side and never reaches this app. The app can read
@@ -88,6 +88,13 @@ shape:
   "summary": "One-line, partner-facing description.",
   "last_submit_error": "optional partner-actionable submit failure",
   "last_pushed_branch_url": "optional branch URL if push succeeded before PR creation failed",
+  "needs_attention": true,
+  "attention": {
+    "type": "checks_failed | changes_requested | github_activity",
+    "title": "Checks failed",
+    "message": "The latest GitHub checks are failing.",
+    "url": "https://github.com/…"
+  },
   // On records staged for review (status=prepared), what the agent proposes
   // to publish; the full diff lives beside the record as
   // contributions/<id>.diff (raw text).
@@ -105,11 +112,13 @@ shape:
 ```
 
 `submitting` means the platform submit endpoint has claimed the record and the
-action is in flight; `commented` is the terminal status for comment actions. The daily
-job and the dismiss flow both write with `If-Match` (compare-and-swap) when the
-runtime returns a version, so concurrent writers — the agent, the cron refresh,
-the Dismiss button — avoid silently overwriting each other. On older runtimes
-that don't return a version, Dismiss re-reads and re-checks the record before
+action is in flight; `commented` is the terminal status for comment actions.
+The daily job also adds `needs_attention` + `attention` when GitHub activity,
+changes requested, or failing checks need agent follow-up. The daily job and
+the dismiss flow both write with `If-Match` (compare-and-swap) when the runtime
+returns a version, so concurrent writers — the agent, the cron refresh, the
+Dismiss button — avoid silently overwriting each other. On older runtimes that
+don't return a version, Dismiss re-reads and re-checks the record before
 writing, while the cron refresh falls back to a plain best-effort write.
 
 ## License

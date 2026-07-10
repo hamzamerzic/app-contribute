@@ -2,13 +2,16 @@
 # Contribute — daily ledger refresh (cron).
 #
 # For every pr/issue ledger record that is still draft/open, ask GitHub for
-# its live state in ONE batched GraphQL call (aliased resource() nodes, ~1
-# rate-limit point total), write back any change, and fire a celebratory push
-# the first time something merges. The mini-app UI does the same refresh on
-# open; this keeps the feed and the merged-count fresh even when nobody opens
-# the app. The full status enum is prepared|submitting|draft|open|merged|
-# closed|commented|abandoned — this job tracks ONLY type pr|issue in status
-# draft|open and leaves every other record alone. Writes use compare-and-swap
+# its live state, latest activity, and check status in ONE batched GraphQL call
+# (aliased resource() nodes, ~1 rate-limit point total), write back any change,
+# and fire a celebratory push the first time something merges. The mini-app UI
+# does the same state refresh on open; this keeps the feed and the merged-count
+# fresh even when nobody opens the app. The full status enum is
+# prepared|submitting|draft|open|merged|closed|commented|abandoned — this job
+# tracks ONLY type pr|issue in status draft|open and leaves every other record
+# alone. When GitHub activity or failing checks need follow-up, the job adds a
+# `needs_attention` + `attention` payload so the app can offer a targeted agent
+# follow-up. Writes use compare-and-swap
 # (If-Match on the read's ETag) when the runtime returns one, so the daily
 # refresh avoids clobbering a concurrent writer — the agent claiming/submitting
 # a record, or the app's Dismiss button; older runtimes without an ETag fall
@@ -162,8 +165,16 @@ for i, (name, rec, etag) in enumerate(targets):
   url_lit = json.dumps(rec["url"])
   parts.append(
     "%s: resource(url: %s) { __typename "
-    "... on PullRequest { state isDraft } "
-    "... on Issue { state } }" % (alias, url_lit)
+    "... on PullRequest { "
+    "state isDraft updatedAt reviewDecision "
+    "comments(last: 1) { nodes { url createdAt author { login } } } "
+    "reviews(last: 1) { nodes { url submittedAt state author { login } } } "
+    "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } "
+    "} "
+    "... on Issue { "
+    "state updatedAt "
+    "comments(last: 1) { nodes { url createdAt author { login } } } "
+    "} }" % (alias, url_lit)
   )
 query = "query { " + " ".join(parts) + " }"
 
@@ -207,6 +218,152 @@ def _live_status(node):
   return None
 
 
+def _first_node(conn):
+  nodes = conn.get("nodes") if isinstance(conn, dict) else None
+  if isinstance(nodes, list) and nodes and isinstance(nodes[0], dict):
+    return nodes[0]
+  return None
+
+
+def _author_name(node):
+  author = node.get("author") if isinstance(node, dict) else None
+  login = author.get("login") if isinstance(author, dict) else ""
+  return login or "GitHub"
+
+
+def _latest_event(node):
+  if not isinstance(node, dict):
+    return None
+  events = []
+  comment = _first_node(node.get("comments"))
+  if comment and comment.get("createdAt"):
+    events.append({
+      "kind": "comment",
+      "at": comment["createdAt"],
+      "url": comment.get("url") or "",
+      "author": _author_name(comment),
+    })
+  review = _first_node(node.get("reviews"))
+  if review and review.get("submittedAt"):
+    events.append({
+      "kind": "review",
+      "state": review.get("state") or "",
+      "at": review["submittedAt"],
+      "url": review.get("url") or "",
+      "author": _author_name(review),
+    })
+  if not events:
+    return None
+  return max(events, key=lambda e: e["at"])
+
+
+def _check_state(node):
+  commits = node.get("commits") if isinstance(node, dict) else None
+  latest = _first_node(commits)
+  commit = latest.get("commit") if isinstance(latest, dict) else None
+  rollup = commit.get("statusCheckRollup") if isinstance(commit, dict) else None
+  state = rollup.get("state") if isinstance(rollup, dict) else ""
+  return state or ""
+
+
+def _record_head(rec):
+  plan = rec.get("plan") if isinstance(rec.get("plan"), dict) else {}
+  return str(plan.get("head_sha") or rec.get("head_sha") or rec.get("branch") or "")
+
+
+def _attention_update(rec, node):
+  patch = {}
+  notify = None
+  if not isinstance(node, dict):
+    return patch, notify
+
+  def set_if_changed(key, value):
+    if (value or rec.get(key)) and rec.get(key) != value:
+      patch[key] = value
+
+  check_state = _check_state(node)
+  previous_check = rec.get("last_check_rollup_state")
+  set_if_changed("last_check_rollup_state", check_state)
+
+  review_decision = node.get("reviewDecision") or ""
+  previous_review = rec.get("last_review_decision")
+  set_if_changed("last_review_decision", review_decision)
+
+  latest = _latest_event(node)
+  baseline = (
+    rec.get("last_github_activity_at") or
+    rec.get("submitted_at") or
+    rec.get("updated_at") or
+    rec.get("created_at") or
+    ""
+  )
+  if latest and latest["at"] > str(rec.get("last_github_activity_at") or ""):
+    patch["last_github_activity_at"] = latest["at"]
+
+  current_attention = (
+    rec.get("attention") if isinstance(rec.get("attention"), dict) else {}
+  )
+  if (
+    current_attention.get("type") == "checks_failed"
+    and check_state == "SUCCESS"
+  ):
+    patch["needs_attention"] = False
+    patch["attention"] = None
+
+  attention = None
+  if check_state in ("FAILURE", "ERROR") and previous_check not in ("FAILURE", "ERROR"):
+    attention = {
+      "type": "checks_failed",
+      "key": "checks_failed:%s:%s" % (check_state, _record_head(rec)),
+      "title": "Checks failed",
+      "message": "The latest GitHub checks are failing.",
+      "url": rec.get("url") or "",
+      "detected_at": now,
+    }
+  elif review_decision == "CHANGES_REQUESTED" and previous_review != "CHANGES_REQUESTED":
+    attention = {
+      "type": "changes_requested",
+      "key": "changes_requested:%s" % (latest["at"] if latest else now),
+      "title": "Changes requested",
+      "message": "A GitHub review requested changes.",
+      "url": (latest or {}).get("url") or rec.get("url") or "",
+      "detected_at": now,
+    }
+  elif latest and latest["at"] > str(baseline):
+    label = "review" if latest["kind"] == "review" else "comment"
+    message = "New %s from %s." % (label, latest["author"])
+    attention = {
+      "type": "github_activity",
+      "key": "github_activity:%s" % latest["at"],
+      "title": "New GitHub activity",
+      "message": message,
+      "url": latest.get("url") or rec.get("url") or "",
+      "event_at": latest["at"],
+      "detected_at": now,
+    }
+
+  if attention:
+    patch["needs_attention"] = True
+    patch["attention"] = attention
+    if current_attention.get("key") != attention["key"]:
+      notify = attention
+  return patch, notify
+
+
+def _notify_attention(rec, attention):
+  title = attention.get("title") or "Contribution needs attention"
+  body = rec.get("title") or rec.get("repo") or "A contribution"
+  message = attention.get("message")
+  if message:
+    body = "%s — %s" % (body, message)
+  _call("POST", "/api/notifications/send", {
+    "title": title,
+    "body": body,
+    "source_id": str(rec.get("id") or ""),
+    "target": "/shell/?app=%s" % APP_ID,
+  })
+
+
 now = (
   datetime.datetime.now(datetime.timezone.utc)
   .replace(microsecond=0)
@@ -215,20 +372,28 @@ now = (
 )
 
 for alias, (name, rec, etag) in aliases.items():
-  new_status = _live_status(data.get(alias))
-  if not new_status or new_status == rec.get("status"):
-    continue
+  node = data.get(alias)
+  new_status = _live_status(node)
+  patch, attention_notice = _attention_update(rec, node)
   was = rec.get("status")
+  if new_status and new_status != was:
+    patch["status"] = new_status
+    if new_status in ("merged", "closed"):
+      patch["needs_attention"] = False
+      patch["attention"] = None
+  if not patch:
+    continue
   # One conditional write. If-Match pins the exact version this run read (and
   # computed the GraphQL verdict from), so a concurrent writer — the agent
   # claiming/submitting a record, the app's Dismiss — is not clobbered when the
   # runtime returns an ETag; an ETag-less older runtime falls back to a blind
-  # write. dict(rec) reapplies ONLY this job's own fields (status, updated_at)
-  # and preserves whatever fields other writers added. On a 412 the record
-  # changed under us — skip it and let the app's live refresh and the next daily
-  # run re-read and reapply if it still needs it, rather than fight for the write.
+  # write. dict(rec) reapplies ONLY this job's own fields (status, attention,
+  # observed GitHub state, updated_at) and preserves whatever fields other
+  # writers added. On a 412 the record changed under us — skip it and let the
+  # app's live refresh and the next daily run re-read and reapply if it still
+  # needs it, rather than fight for the write.
   updated = dict(rec)
-  updated["status"] = new_status
+  updated.update(patch)
   updated["updated_at"] = now
   headers = {"If-Match": etag} if etag else {}
   try:
@@ -243,6 +408,11 @@ for alias, (name, rec, etag) in aliases.items():
   except Exception as exc:
     print("contribute: PUT %s error: %s" % (name, exc), file=sys.stderr)
     continue
+  if attention_notice:
+    try:
+      _notify_attention(updated, attention_notice)
+    except Exception:
+      pass
   if new_status == "merged" and was != "merged":
     title = rec.get("title") or "contribution"
     try:
