@@ -1,5 +1,5 @@
 #!/bin/bash
-# Contribute — daily ledger refresh (cron).
+# Contribute — scheduled ledger refresh (cron).
 #
 # For every pr/issue ledger record that is still draft/open, ask GitHub for
 # its live state, latest activity, and check status in ONE batched GraphQL call
@@ -12,11 +12,11 @@
 # alone. When GitHub activity or failing checks need follow-up, the job adds a
 # `needs_attention` + `attention` payload so the app can offer a targeted agent
 # follow-up. Writes use compare-and-swap
-# (If-Match on the read's ETag) when the runtime returns one, so the daily
+# (If-Match on the read's ETag) when the runtime returns one, so the scheduled
 # refresh avoids clobbering a concurrent writer — the agent claiming/submitting
 # a record, or the app's Dismiss button; older runtimes without an ETag fall
 # back to a best-effort write. On a lost race (412) the record is left for the
-# app's live refresh and the next daily run to reconcile.
+# app's live refresh and the next scheduled run to reconcile.
 #
 # Cron runs this as `mobius` with an EMPTY environment and passes the app's
 # numeric id as $1, so the script sets its own SERVICE_TOKEN + API_BASE_URL and
@@ -72,6 +72,8 @@ API = os.environ["API_BASE_URL"].rstrip("/")
 TOKEN = os.environ["SERVICE_TOKEN"]
 APP_ID = os.environ["APP_ID"]
 PREFIX = "contributions/"
+DEFAULT_BRANCH_BY_REPO = {}
+BASE_FAILURES_BY_REPO = {}
 
 
 def _call(method, path, body=None, headers=None):
@@ -169,7 +171,13 @@ for i, (name, rec, etag) in enumerate(targets):
     "state isDraft updatedAt reviewDecision "
     "comments(last: 1) { nodes { url createdAt author { login } } } "
     "reviews(last: 1) { nodes { url submittedAt state author { login } } } "
-    "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } "
+    "commits(last: 1) { nodes { commit { statusCheckRollup { "
+    "state "
+    "contexts(first: 30) { nodes { __typename "
+    "... on CheckRun { name conclusion detailsUrl } "
+    "... on StatusContext { context state targetUrl } "
+    "} } "
+    "} } } } "
     "} "
     "... on Issue { "
     "state updatedAt "
@@ -257,18 +265,179 @@ def _latest_event(node):
   return max(events, key=lambda e: e["at"])
 
 
-def _check_state(node):
+def _status_rollup(node):
   commits = node.get("commits") if isinstance(node, dict) else None
   latest = _first_node(commits)
   commit = latest.get("commit") if isinstance(latest, dict) else None
-  rollup = commit.get("statusCheckRollup") if isinstance(commit, dict) else None
+  return commit.get("statusCheckRollup") if isinstance(commit, dict) else None
+
+
+def _check_state(node):
+  rollup = _status_rollup(node)
   state = rollup.get("state") if isinstance(rollup, dict) else ""
   return state or ""
+
+
+def _failing_checks(node):
+  rollup = _status_rollup(node)
+  contexts = rollup.get("contexts") if isinstance(rollup, dict) else None
+  nodes = contexts.get("nodes") if isinstance(contexts, dict) else None
+  if not isinstance(nodes, list):
+    return []
+  checks = []
+  seen = set()
+  for ctx in nodes:
+    if not isinstance(ctx, dict):
+      continue
+    kind = ctx.get("__typename")
+    if kind == "CheckRun":
+      state = str(ctx.get("conclusion") or "").upper()
+      name = str(ctx.get("name") or "").strip()
+      url = str(ctx.get("detailsUrl") or "")
+    elif kind == "StatusContext":
+      state = str(ctx.get("state") or "").upper()
+      name = str(ctx.get("context") or "").strip()
+      url = str(ctx.get("targetUrl") or "")
+    else:
+      continue
+    if state not in ("FAILURE", "ERROR") or not name:
+      continue
+    key = (name, url)
+    if key in seen:
+      continue
+    seen.add(key)
+    checks.append({"name": name, "url": url})
+  return checks
 
 
 def _record_head(rec):
   plan = rec.get("plan") if isinstance(rec.get("plan"), dict) else {}
   return str(plan.get("head_sha") or rec.get("head_sha") or rec.get("branch") or "")
+
+
+def _gh_json(args, timeout=20):
+  try:
+    out = subprocess.run(
+      ["gh", "api"] + args,
+      capture_output=True, text=True, timeout=timeout,
+    )
+  except Exception:
+    return None
+  if out.returncode != 0:
+    return None
+  try:
+    return json.loads(out.stdout) if out.stdout else None
+  except Exception:
+    return None
+
+
+def _repo_slug(rec):
+  repo = rec.get("repo")
+  if isinstance(repo, str):
+    repo = repo.strip()
+    parts = repo.split("/")
+    if len(parts) == 2 and parts[0] and parts[1]:
+      return repo
+  url = rec.get("url")
+  if isinstance(url, str):
+    parts = urllib.parse.urlparse(url).path.strip("/").split("/")
+    if len(parts) >= 2 and parts[0] and parts[1]:
+      return "%s/%s" % (parts[0], parts[1])
+  return ""
+
+
+def _default_branch(repo):
+  if repo in DEFAULT_BRANCH_BY_REPO:
+    return DEFAULT_BRANCH_BY_REPO[repo]
+  branch = None
+  info = _gh_json(["repos/%s" % repo], timeout=15)
+  if isinstance(info, dict):
+    value = info.get("default_branch")
+    if isinstance(value, str) and value:
+      branch = value
+  DEFAULT_BRANCH_BY_REPO[repo] = branch
+  return branch
+
+
+def _base_failed_checks(repo):
+  if repo in BASE_FAILURES_BY_REPO:
+    return BASE_FAILURES_BY_REPO[repo]
+  branch = _default_branch(repo)
+  if not branch:
+    BASE_FAILURES_BY_REPO[repo] = None
+    return None
+  endpoint = (
+    "repos/%s/actions/runs?per_page=1&status=completed&branch=%s" %
+    (repo, urllib.parse.quote(branch, safe=""))
+  )
+  runs = _gh_json([endpoint], timeout=20)
+  workflows = runs.get("workflow_runs") if isinstance(runs, dict) else None
+  if not isinstance(workflows, list) or not workflows:
+    BASE_FAILURES_BY_REPO[repo] = None
+    return None
+  run_id = workflows[0].get("id") if isinstance(workflows[0], dict) else None
+  if not run_id:
+    BASE_FAILURES_BY_REPO[repo] = None
+    return None
+  jobs = _gh_json(
+    ["repos/%s/actions/runs/%s/jobs?per_page=50" % (repo, run_id)],
+    timeout=30,
+  )
+  job_nodes = jobs.get("jobs") if isinstance(jobs, dict) else None
+  if not isinstance(job_nodes, list):
+    BASE_FAILURES_BY_REPO[repo] = None
+    return None
+  failed = set()
+  for job in job_nodes:
+    if not isinstance(job, dict):
+      continue
+    conclusion = str(job.get("conclusion") or "").lower()
+    if conclusion in ("failure", "error", "startup_failure", "timed_out", "action_required"):
+      name = str(job.get("name") or "").strip()
+      if name:
+        failed.add(name)
+  BASE_FAILURES_BY_REPO[repo] = {"branch": branch, "failed": failed}
+  return BASE_FAILURES_BY_REPO[repo]
+
+
+def _classified_failing_checks(rec, node):
+  checks = _failing_checks(node)
+  if not checks:
+    return [], ""
+  base = None
+  if node.get("__typename") == "PullRequest":
+    repo = _repo_slug(rec)
+    if repo:
+      base = _base_failed_checks(repo)
+  failed = base.get("failed") if isinstance(base, dict) else None
+  branch = base.get("branch") if isinstance(base, dict) else ""
+  classified = []
+  for check in checks:
+    item = dict(check)
+    classification = "unknown"
+    if isinstance(failed, set):
+      classification = "inherited" if item.get("name") in failed else "suspect-pr-caused"
+    item["classification"] = classification
+    classified.append(item)
+  return classified, (branch or "")
+
+
+def _checks_message(checks, branch):
+  if not checks:
+    return "The latest GitHub checks are failing."
+  parts = []
+  for check in checks:
+    name = check.get("name") or "check"
+    classification = check.get("classification")
+    if classification == "inherited":
+      parts.append("%s (also failing on %s - inherited)" % (name, branch or "base"))
+    elif classification == "suspect-pr-caused":
+      parts.append("%s (suspect)" % name)
+    elif classification == "unknown":
+      parts.append("%s (unknown)" % name)
+    else:
+      parts.append(name)
+  return "Checks failing: %s." % ", ".join(parts)
 
 
 def _attention_update(rec, node):
@@ -282,8 +451,10 @@ def _attention_update(rec, node):
       patch[key] = value
 
   check_state = _check_state(node)
+  failing_checks, base_branch = _classified_failing_checks(rec, node)
   previous_check = rec.get("last_check_rollup_state")
   set_if_changed("last_check_rollup_state", check_state)
+  set_if_changed("failing_checks", failing_checks)
 
   review_decision = node.get("reviewDecision") or ""
   previous_review = rec.get("last_review_decision")
@@ -311,15 +482,18 @@ def _attention_update(rec, node):
     patch["attention"] = None
 
   attention = None
-  if check_state in ("FAILURE", "ERROR") and previous_check not in ("FAILURE", "ERROR"):
-    attention = {
+  checks_attention = None
+  if check_state in ("FAILURE", "ERROR"):
+    checks_attention = {
       "type": "checks_failed",
       "key": "checks_failed:%s:%s" % (check_state, _record_head(rec)),
       "title": "Checks failed",
-      "message": "The latest GitHub checks are failing.",
+      "message": _checks_message(failing_checks, base_branch),
       "url": rec.get("url") or "",
       "detected_at": now,
     }
+  if checks_attention and previous_check not in ("FAILURE", "ERROR"):
+    attention = checks_attention
   elif review_decision == "CHANGES_REQUESTED" and previous_review != "CHANGES_REQUESTED":
     attention = {
       "type": "changes_requested",
@@ -341,6 +515,25 @@ def _attention_update(rec, node):
       "event_at": latest["at"],
       "detected_at": now,
     }
+
+  if (
+    not attention
+    and checks_attention
+    and current_attention.get("type") == "checks_failed"
+    and current_attention.get("key") == checks_attention["key"]
+  ):
+    refreshed = dict(current_attention)
+    refreshed.update({
+      "type": checks_attention["type"],
+      "key": checks_attention["key"],
+      "title": checks_attention["title"],
+      "message": checks_attention["message"],
+      "url": checks_attention["url"],
+    })
+    if not refreshed.get("detected_at"):
+      refreshed["detected_at"] = now
+    if refreshed != current_attention:
+      patch["attention"] = refreshed
 
   if attention:
     patch["needs_attention"] = True
@@ -390,7 +583,7 @@ for alias, (name, rec, etag) in aliases.items():
   # write. dict(rec) reapplies ONLY this job's own fields (status, attention,
   # observed GitHub state, updated_at) and preserves whatever fields other
   # writers added. On a 412 the record changed under us — skip it and let the
-  # app's live refresh and the next daily run re-read and reapply if it still
+  # app's live refresh and the next scheduled run re-read and reapply if it still
   # needs it, rather than fight for the write.
   updated = dict(rec)
   updated.update(patch)
