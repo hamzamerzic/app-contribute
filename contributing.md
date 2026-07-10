@@ -254,6 +254,17 @@ from a branch there, ledger `repo: "mobius-os/mobius"`, same back-to-`main`
 invariant. No origin → be honest: platform contributions need the updated
 platform bootstrap; app contributions still work.
 
+## PLATFORM CI
+
+For `mobius-os/mobius` PRs, upstream CI runs backend pytest, frontend unit
+`npm test`, `packager-unit`, `core-apps-unit`, `core-apps-sync` via
+`scripts/check-core-apps-sync.sh`, and Playwright e2e.
+
+Before staging, validate what you can in-container: backend pytest yes;
+`scripts/check-core-apps-sync.sh` yes, with network; frontend unit plus build
+yes. Playwright e2e is not runnable in-container. The Contribute checks refresh
+reports that PR result on the record; expect it within the refresh cadence.
+
 ### Commenting on an issue or discussion
 
 Publish the approved `body_draft` word for word — it posts under the partner's name.
@@ -295,7 +306,7 @@ curl -s -H "Authorization: Bearer $AGENT_TOKEN" "$API_BASE_URL/api/apps/" \
 
 **CAS governs every JSON RECORD write** — the same If-Match discipline as the
 submit claim, because the record has four writers (you, the submit endpoint,
-the daily refresh job, the app's Dismiss button) and an unconditional PUT
+the scheduled refresh job, the app's Dismiss button) and an unconditional PUT
 silently erases one. The `.diff` blob is exempt: it's written once alongside the
 prepared record, not concurrently edited.
 
@@ -348,7 +359,7 @@ claimed the record and the action is in flight; `commented` = terminal for
 comment actions. A record stuck in `submitting` with an old `updated_at` (crashed
 submit) → verify via `gh search` whether the action actually happened before
 redoing it.
-The daily refresh job only tracks `pr | issue` records in `draft | open`.
+The scheduled refresh job only tracks `pr | issue` records in `draft | open`.
 
 App NOT installed: no staging, no review card, no tracking — but Hard stop #1
 still holds (a plain yes in chat gates each action). Recommend installing it from
