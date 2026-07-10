@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
-import { DiffView } from './DiffView.jsx'
+import { parseDiffStat } from '../diff.js'
+import { FileDiffList } from './FileDiffList.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
 
 // One ledger row. Pointer clicks on a linked PR/issue card open the target, and
@@ -26,37 +27,66 @@ const ACTION_LABELS = {
   discussion_comment: 'Comment on',
 }
 
-function diffSummary(stat) {
-  const lines = String(stat || '')
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-  if (lines.length === 0) return ''
-  return lines[lines.length - 1]
+// The collapsed prepared card's one meta line: repo · branch · timeAgo. Kept to
+// a single row — the branch (usually the longest, least critical char-by-char)
+// is the piece that truncates, so repo and recency always stay legible.
+function PlanMeta({ rec }) {
+  const plan = rec.plan || {}
+  const repo = plan.repo || rec.repo || ''
+  const branch = plan.branch || rec.branch || ''
+  const when = timeAgo(rec.updated_at || rec.created_at)
+  const parts = [
+    repo ? { cls: 'co-plan-meta-repo', value: repo } : null,
+    branch ? { cls: 'co-plan-meta-branch', value: branch } : null,
+    when ? { cls: 'co-plan-meta-time', value: when } : null,
+  ].filter(Boolean)
+  if (parts.length === 0) return null
+  return (
+    <div className="co-plan-meta">
+      {parts.map((part, i) => (
+        <React.Fragment key={part.cls}>
+          {i > 0 ? (
+            <span className="co-plan-meta-sep" aria-hidden="true">·</span>
+          ) : null}
+          <span className={part.cls}>{part.value}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  )
+}
+
+// The compact mono "N files +A −B" line, parsed from plan.diff_stat's summary
+// (diff_stat is always stored). + green, − red; nothing renders if unparseable.
+function DiffLine({ stat }) {
+  const parsed = parseDiffStat(stat)
+  if (!parsed || parsed.totalFiles === 0) return null
+  const n = parsed.totalFiles
+  return (
+    <div className="co-diffline">
+      <span className="co-diffline-files">{n} {n === 1 ? 'file' : 'files'}</span>
+      <span className="co-diffline-add">+{parsed.additions}</span>
+      <span className="co-diffline-del">{'−'}{parsed.deletions}</span>
+    </div>
+  )
 }
 
 function PlanSummary({ rec }) {
-  const plan = rec.plan || {}
-  const where = plan.repo || rec.repo || ''
-  const branch = plan.branch || rec.branch || ''
-  const summary = diffSummary(plan.diff_stat)
-  const isPr = plan.action === 'pr' || rec.type === 'pr'
   return (
     <div className="co-plan-summary">
-      <div className="co-plan-row">
-        {where ? <span>{where}</span> : null}
-        {branch ? <span>{branch}</span> : null}
-        {summary ? <span>{summary}</span> : null}
-      </div>
-      {isPr ? (
-        <div className="co-plan-coauthor" title="The prepared commit carries this GitHub co-author trailer.">
-          <span>Co-authored with</span>
-          <strong>Möbius Agent</strong>
-        </div>
-      ) : null}
-      {rec.last_submit_error ? (
-        <p className="co-review-error">{rec.last_submit_error}</p>
-      ) : null}
+      <PlanMeta rec={rec} />
+      <DiffLine stat={rec.plan?.diff_stat} />
+    </div>
+  )
+}
+
+// A persisted submit failure, shown as a real alert strip (not stray red text)
+// on the prepared card in both the collapsed and expanded states, so the reason
+// a Send bounced stays visible while the partner fixes it.
+function SubmitErrorAlert({ rec }) {
+  if (!rec.last_submit_error) return null
+  return (
+    <div className="co-alert" role="status">
+      <p className="co-alert-text">{rec.last_submit_error}</p>
       {typeof rec.last_pushed_branch_url === 'string' &&
         rec.last_pushed_branch_url.startsWith('https://github.com/') ? (
         <a
@@ -134,41 +164,15 @@ function AttentionCallout({ rec, onFeedback }) {
   )
 }
 
-// The staged plan, rendered for review. Shown only when rec.plan exists.
+// The staged plan, rendered for review. Shown only when rec.plan exists. The
+// diff now reads as a changed-file list (FileDiffList) that fetches and parses
+// the full diff on expand — no raw diff_stat block, no excerpt step.
 function ReviewPlan({ rec, loadDiff }) {
   const plan = rec.plan
-  // idle → excerpt | loading → loaded | missing. Nothing diff-like is shown by
-  // default; the partner starts with the stat and opts into the excerpt/full
-  // patch when they need detail.
-  const [diffState, setDiffState] = useState('idle')
-  const [fullDiff, setFullDiff] = useState(null)
-
   const where = plan.repo || rec.repo || ''
   const badge = (ACTION_LABELS[plan.action] || 'Contribution to') +
     (where ? ' ' + where : '')
-  const hasDiffShape = Boolean(
-    plan.diff_stat || plan.diff_excerpt || plan.diff_sha256)
-  const displayedDiff = diffState === 'loaded'
-    ? fullDiff
-    : diffState === 'excerpt'
-      ? plan.diff_excerpt
-      : ''
   const isPr = plan.action === 'pr' || rec.type === 'pr'
-
-  function showExcerpt() {
-    setDiffState('excerpt')
-  }
-
-  async function showFullDiff() {
-    setDiffState('loading')
-    const text = typeof loadDiff === 'function' ? await loadDiff(rec) : null
-    if (typeof text === 'string' && text.length > 0) {
-      setFullDiff(text)
-      setDiffState('loaded')
-    } else {
-      setDiffState('missing')
-    }
-  }
 
   return (
     <>
@@ -188,42 +192,7 @@ function ReviewPlan({ rec, loadDiff }) {
           <MarkdownView markdown={plan.body_draft} />
         </section>
       ) : null}
-      {hasDiffShape && (
-        <section className="co-review-section co-review-diffwrap">
-          <div className="co-review-section-title">Diff</div>
-          {plan.diff_stat ? (
-            <div className="co-review-diffstat">{plan.diff_stat}</div>
-          ) : null}
-          {displayedDiff ? (
-            <DiffView diff={displayedDiff} />
-          ) : null}
-          {diffState === 'missing' ? (
-            <p className="co-review-note">No stored diff to show — ask your agent in chat for the full change.</p>
-          ) : (
-            <div className="co-review-tools">
-              {plan.diff_excerpt && diffState === 'idle' ? (
-                <button
-                  type="button"
-                  className="co-btn co-btn-sm"
-                  onClick={showExcerpt}
-                >
-                  Show diff excerpt
-                </button>
-              ) : null}
-              {diffState !== 'loaded' ? (
-                <button
-                  type="button"
-                  className="co-btn co-btn-sm"
-                  disabled={diffState === 'loading'}
-                  onClick={showFullDiff}
-                >
-                  {diffState === 'loading' ? 'Loading diff…' : 'View full diff'}
-                </button>
-              ) : null}
-            </div>
-          )}
-        </section>
-      )}
+      <FileDiffList rec={rec} loadDiff={loadDiff} />
       {typeof plan.target_url === 'string' &&
         plan.target_url.startsWith('https://github.com/') && (
         <a
@@ -396,7 +365,10 @@ export function ContributionCard({
         <span className={`co-chip is-${status}`}>{statusLabel}</span>
       </div>
       {rec.summary ? <p className="co-card-summary">{rec.summary}</p> : null}
-      {meta.length > 0 && (
+      {/* Non-plan cards keep the generic type · repo#number · time line; a
+          prepared plan card carries its own repo · branch · time line inside
+          the collapsed summary, so the two never stack. */}
+      {!hasPlan && meta.length > 0 && (
         <div className="co-card-meta">
           {meta.map((part, i) => (
             <span key={i}>
@@ -408,6 +380,7 @@ export function ContributionCard({
       )}
       <AttentionCallout rec={rec} onFeedback={onFeedback} />
       {hasPlan && !expanded ? <PlanSummary rec={rec} /> : null}
+      <SubmitErrorAlert rec={rec} />
       {hasPlan && (
         <button
           type="button"

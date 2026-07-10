@@ -17,12 +17,12 @@ export const CSS = `
 
 /* mobius-ui:Scrollskin v2 — keep in sync; hidden by default, content stays scrollable. */
 .co-page,
-.co-diff-view {
+.co-file-panel {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .co-page::-webkit-scrollbar,
-.co-diff-view::-webkit-scrollbar {
+.co-file-panel::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;
@@ -225,28 +225,48 @@ export const CSS = `
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
   font-size: 12px; color: var(--muted);
 }
+/* Collapsed prepared card: one muted meta line + one mono diffline. The pill
+   stack and the collapsed co-author tag are gone (co-author now lives in the
+   expanded review). */
 .co-plan-summary {
-  display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
-  margin-top: 10px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+  margin-top: 9px;
 }
-.co-plan-row {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  font-size: 12px; color: var(--muted);
+.co-plan-meta {
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  font-size: 12px; line-height: 1.4; color: var(--muted);
 }
-.co-plan-row span {
-  min-height: 24px; display: inline-flex; align-items: center;
-  padding: 3px 8px; border-radius: 7px;
-  background: var(--surface2, var(--bg));
-  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
-  overflow-wrap: anywhere;
+.co-plan-meta-repo,
+.co-plan-meta-time { flex: 0 0 auto; white-space: nowrap; }
+.co-plan-meta-branch {
+  flex: 0 1 auto; min-width: 0; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--mono, var(--font));
+  color: color-mix(in srgb, var(--muted) 85%, var(--text));
 }
-.co-plan-coauthor {
-  display: inline-flex; align-items: center; gap: 6px;
-  min-height: 26px; padding: 4px 8px; border-radius: 7px;
-  background: color-mix(in srgb, var(--green) 12%, transparent);
-  color: var(--green); font-size: 12px; line-height: 1.2;
+.co-plan-meta-sep {
+  flex: 0 0 auto; color: color-mix(in srgb, var(--muted) 55%, transparent);
 }
-.co-plan-coauthor strong { color: var(--green); font-weight: 700; }
+.co-diffline {
+  display: inline-flex; align-items: baseline; gap: 9px;
+  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.3;
+}
+.co-diffline-files { color: var(--muted); }
+.co-diffline-add { color: var(--green); font-weight: 650; }
+.co-diffline-del { color: var(--danger); font-weight: 650; }
+
+/* Persisted submit error — a real danger-tinted strip, not stray red text. */
+.co-alert {
+  align-self: stretch; margin-top: 10px; padding: 9px 11px;
+  display: flex; flex-direction: column; gap: 6px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+.co-alert-text {
+  margin: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--danger) 88%, var(--text));
+}
 
 .co-attention {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
@@ -325,97 +345,95 @@ export const CSS = `
   margin: 0; padding: 0 0 0 12px; border-left: 1px solid var(--border);
   color: var(--muted);
 }
-.co-review-diffwrap {
-  align-items: flex-start;
-}
-.co-review-tools { display: flex; flex-wrap: wrap; gap: 8px; }
-.co-review-diffstat {
-  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
-  color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
-}
-.co-diff-shell {
-  align-self: stretch; display: flex; flex-direction: column;
-  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  background: var(--surface2, var(--bg));
-}
-.co-diff-overview {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  min-height: 38px; padding: 8px 10px; border-bottom: 1px solid var(--border);
+/* Changed-file list (expanded review): a compact header, one row per file with
+   a left-truncating path + right-aligned +adds −dels, each row expanding its
+   own diff inline. */
+.co-files {
+  align-self: stretch;
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
   background: var(--surface);
 }
-.co-diff-overview-main,
-.co-diff-overview-stats {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.2;
-}
-.co-diff-overview-main strong {
-  color: var(--text); font-weight: 700;
-}
-.co-diff-overview-main span { color: var(--muted); }
-.co-diff-stat {
-  min-width: 34px; padding: 3px 7px; border-radius: 7px;
-  text-align: center; font-weight: 650;
-}
-.co-diff-stat.is-add {
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 11%, transparent);
-}
-.co-diff-stat.is-del {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
-}
-.co-diff-view {
-  align-self: stretch; max-height: 420px; overflow: auto;
-  background: var(--surface2, var(--bg));
-}
-.co-diff-file + .co-diff-file { border-top: 1px solid var(--border); }
-.co-diff-file-head {
-  position: sticky; top: 0; z-index: 1;
+.co-files-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  min-width: max-content; padding: 8px 10px;
-  background: var(--surface2, var(--bg)); border-bottom: 1px solid var(--border);
-}
-.co-diff-file-toggle {
-  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 0; border: 0; background: transparent; color: var(--text);
-  font: inherit; cursor: pointer;
-}
-.co-diff-caret {
-  width: 7px; height: 7px; flex: 0 0 auto;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(45deg); color: var(--muted);
-  transition: transform .14s ease;
-}
-.co-diff-file-toggle[aria-expanded="false"] .co-diff-caret {
-  transform: rotate(-45deg);
-}
-.co-diff-file-name {
-  font-family: var(--mono, var(--font)); font-size: 12px; font-weight: 650;
-}
-.co-diff-file-meta {
-  display: inline-flex; align-items: center; gap: 7px;
+  min-height: 40px; padding: 9px 12px; border-bottom: 1px solid var(--border);
+  background: var(--surface2, var(--bg));
   font-family: var(--mono, var(--font)); font-size: 12px;
 }
-.co-diff-kind {
-  padding: 2px 6px; border-radius: 6px; color: var(--muted);
-  background: color-mix(in srgb, var(--text) 7%, transparent);
+.co-files-count { color: var(--muted); font-weight: 650; }
+
+.co-file + .co-file,
+.co-files-more,
+.co-files-note { border-top: 1px solid var(--border); }
+
+.co-file-row {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%; min-height: 44px; padding: 8px 12px;
+  border: 0; background: transparent; color: var(--text);
+  font: inherit; text-align: left; cursor: pointer;
 }
-.co-diff-kind.is-added {
-  color: var(--green);
-  background: color-mix(in srgb, var(--green) 11%, transparent);
+.co-file-row.is-static { cursor: default; }
+@media (hover: hover) {
+  .co-file-row:not(.is-static):hover {
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+  }
 }
-.co-diff-kind.is-deleted {
-  color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+.co-file-caret {
+  flex: 0 0 auto; width: 6px; height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: rotate(-45deg); transition: transform .14s ease;
 }
-.co-diff-kind.is-renamed {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+.co-file-row[aria-expanded="true"] .co-file-caret { transform: rotate(45deg); }
+
+/* Left-truncation: the dir keeps its right edge (…app/) via its own rtl+ellipsis
+   single run, and the basename is a separate, never-shrinking item after it, so
+   the filename always stays fully visible. */
+.co-file-path {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: baseline;
+  font-family: var(--mono, var(--font)); font-size: 12.5px; line-height: 1.3;
 }
-.co-diff-file-stat {
-  font-family: var(--mono, var(--font)); font-size: 12px; color: var(--muted);
+.co-file-dir {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* rtl puts the ellipsis on the LEFT so the deepest dirs survive truncation;
+     isolate fences the bidi context so path glyphs can't visually reorder the
+     surrounding row (the title attribute always carries the exact path). */
+  direction: rtl; unicode-bidi: isolate; text-align: left; color: var(--muted);
 }
+.co-file-sep { flex: 0 0 auto; color: var(--muted); }
+.co-file-base { flex: 0 0 auto; white-space: nowrap; color: var(--text); font-weight: 650; }
+
+.co-file-meta { flex: 0 0 auto; display: inline-flex; align-items: baseline; gap: 8px; }
+.co-file-kind { font-size: 11px; color: var(--muted); }
+.co-file-stat {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  font-family: var(--mono, var(--font)); font-size: 12px;
+}
+.co-file-stat.is-approx { opacity: 0.85; }
+.co-file-add { color: var(--green); font-weight: 650; }
+.co-file-del { color: var(--danger); font-weight: 650; }
+
+.co-file-panel {
+  max-height: 340px; overflow: auto; overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+  background: var(--surface2, var(--bg));
+}
+
+.co-files-more {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; min-height: 42px; padding: 8px 12px;
+  border-left: 0; border-right: 0; border-bottom: 0;
+  background: transparent; color: var(--accent);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+}
+@media (hover: hover) {
+  .co-files-more:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+}
+.co-files-note {
+  margin: 0; padding: 9px 12px; font-size: 12px; line-height: 1.45; color: var(--muted);
+}
+
 .co-diff-lines { min-width: max-content; padding: 4px 0; }
 .co-diff-row {
   display: grid; grid-template-columns: 44px 44px 22px max-content;
@@ -471,9 +489,6 @@ export const CSS = `
 @media (max-width: 520px) {
   .co-attention {
     flex-direction: column; align-items: stretch;
-  }
-  .co-diff-overview {
-    align-items: flex-start; flex-direction: column; gap: 7px;
   }
 }
 `

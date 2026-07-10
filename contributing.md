@@ -137,16 +137,17 @@ Contribute needs to submit it directly after approval:
 ```
 plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
        repo, target_url?, title?, body_draft, branch?, repo_path?,
-       base_sha?, head_sha?, diff_sha256?, diff_stat?,
-       diff_excerpt?}         # ≤4KB inline for the review card
+       base_sha?, head_sha?, diff_sha256?, diff_stat,
+       diff_excerpt?}         # diff_stat REQUIRED; diff_excerpt legacy (unused)
 ```
 
 - `body_draft` is the FULL text you propose to publish — PR body, issue body, or
   comment, word for word. The partner reviews exactly this; never publish
   anything that differs from what they approved.
-- For PRs, `repo_path` MUST be a durable git checkout under `/data/apps/`,
-  `/data/platform`, or `/data/contributions/`; a `/tmp` clone does not survive
-  restart and cannot be approved with one click.
+- For PRs, `repo_path` MUST be a durable git checkout under a staging root the
+  platform accepts — `/data/contrib/<workspace>` (the primary durable staging
+  root), `/data/apps/`, `/data/platform`, or the legacy `/data/contributions/`;
+  a `/tmp` clone does not survive restart and cannot be approved with one click.
 - Commit the reviewed source before staging. If GitHub is connected, first set
   the checkout's repo-local `user.name`/`user.email` to the connected owner
   identity (`git config --global --get user.email` should already be the
@@ -154,10 +155,12 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
   the co-author. The commit message MUST include:
   `Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>`.
 - Store the full canonical diff as a sibling `contributions/<id>.diff`
-  (raw-text PUT — see the ledger); put `diff_stat` and a ≤4 KB `diff_excerpt`
-  inline for the card, and record `base_sha`/`head_sha`/`diff_sha256` so the
-  submit button can recompute the exact branch diff before pushing (Hard stop
-  #3). Compute the hash from the exact `.diff` bytes you store.
+  (raw-text PUT — see the ledger): the review card renders its file list from
+  this. `diff_stat` is REQUIRED — the card's diffline and its file-list fallback
+  (when the `.diff` is missing) both parse it. `diff_excerpt` is legacy and no
+  longer displayed; you may omit it. Record `base_sha`/`head_sha`/`diff_sha256`
+  so the submit button can recompute the exact branch diff before pushing (Hard
+  stop #3). Compute the hash from the exact `.diff` bytes you store.
 
 Before you tell the partner it is ready, review the staged record yourself:
 re-read the stored `.diff`, confirm the body draft is exactly what should be
@@ -230,7 +233,7 @@ git checkout main     # INVARIANT
 
 Then write the ledger record with `repo_path: "/data/apps/<slug>"`, `branch`,
 `base_sha: "$BASE_SHA"`, `head_sha: "$HEAD_SHA"`, `diff_sha256` from
-`$DIFF_SHA256`, `diff_stat`, and `diff_excerpt`.
+`$DIFF_SHA256`, and `diff_stat` (required). `diff_excerpt` is legacy — omit it.
 
 Two invariants: the
 **`Co-authored-by: Möbius Agent` trailer on every contributed commit** (the
@@ -244,7 +247,8 @@ stays for follow-ups; only the checkout returns.
 
 **No origin** (installed from a manifest): derive the repo from `manifest_url`
 (`.../<org>/<repo>/<ref>/mobius.json` → `github.com/<org>/<repo>`), clone it into
-`/data/contributions/<record-id>/repo`, `checkout -b fix/…`, copy the changed
+`/data/contrib/<record-id>/repo` (the primary durable staging root; legacy
+`/data/contributions/` still works), `checkout -b fix/…`, copy the changed
 source over (re-read vs the allowlist), and `commit` with the co-author trailer.
 Use that durable clone as `repo_path`. The live app dir never branches, so it
 never leaves `main`.
@@ -327,8 +331,7 @@ curl -s -X PUT "$API_BASE_URL/api/storage/apps/<id>/contributions/<record-id>.js
            "branch": "fix/<slug>-<short>", "repo_path": "/data/apps/<slug>",
            "base_sha": "<sha>", "head_sha": "<sha>",
            "diff_sha256": "<sha256 of the .diff>",
-           "diff_stat": "<git diff --stat tail>",
-           "diff_excerpt": "<first reviewable hunk(s), ≤4 KB>"}
+           "diff_stat": "<git diff --stat tail>"}
 }'
 ```
 
