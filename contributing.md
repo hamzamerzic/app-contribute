@@ -142,7 +142,11 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
 - For PRs, `repo_path` MUST be a durable git checkout under `/data/apps/`,
   `/data/platform`, or `/data/contributions/`; a `/tmp` clone does not survive
   restart and cannot be approved with one click.
-- Commit the reviewed source before staging. The commit message MUST include:
+- Commit the reviewed source before staging. If GitHub is connected, first set
+  the checkout's repo-local `user.name`/`user.email` to the connected owner
+  identity (`git config --global --get user.email` should already be the
+  owner's no-reply address). The partner is the commit author; Möbius is only
+  the co-author. The commit message MUST include:
   `Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>`.
 - Store the full canonical diff as a sibling `contributions/<id>.diff`
   (raw-text PUT — see the ledger); put `diff_stat` and a ≤4 KB `diff_excerpt`
@@ -165,9 +169,11 @@ turn is needed after that click. The platform endpoint:
    equals the stored `.diff`, and the canonical `base_sha..head_sha` branch diff
    hashes to the same value,
 3. verifies the commit carries the Möbius Agent co-author trailer,
-4. pushes the branch to the owner's fork,
-5. creates a draft PR with the approved `title` and `body_draft`, and
-6. records `url`, `number`, and `status: "draft"` back into the ledger.
+4. normalizes the tip commit author/committer to the connected owner while
+   preserving the reviewed diff,
+5. pushes the branch to the owner's fork,
+6. creates a draft PR with the approved `title` and `body_draft`, and
+7. records `url`, `number`, and `status: "draft"` back into the ledger.
 
 If any preflight fails, the endpoint rolls the record back to `prepared` with
 `last_submit_error`; the partner can press Leave feedback to return to the
@@ -192,6 +198,11 @@ repo:
 ```bash
 cd /data/apps/<slug>                       # app's own repo; main is checked out
 git checkout -b fix/<slug>-<short>
+git_email="$(git config --global --get user.email || true)"
+if [ -n "$git_email" ] && [ "$git_email" != "agent@mobius" ]; then
+  git config user.name "$(git config --global --get user.name)"
+  git config user.email "$git_email"
+fi
 # Squash the watcher's commits into ONE clean, generic commit. `upstream` is the
 # Möbius per-app-git branch inside /data/apps/<slug>:
 git reset --soft "$(git merge-base HEAD upstream)"
