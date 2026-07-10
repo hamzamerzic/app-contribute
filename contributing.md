@@ -120,6 +120,11 @@ Anything but yes → stop. Preparing is still private: a local branch/commit and
 Contribute record, not a fork, push, PR, issue, or comment. PRs open as
 **drafts** by default only after the partner presses Approve in Contribute.
 
+An unanswered, timed-out, disabled, or empty-response question card is **not**
+approval. If the approval surface expires or returns no answer, leave the
+prepared record private and ask again in plain chat or wait for the Contribute
+Approve button. Never treat `{}` / no selection as "yes" for a public action.
+
 ---
 
 ## Prepare for review
