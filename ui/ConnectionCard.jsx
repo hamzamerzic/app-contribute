@@ -230,7 +230,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
           </p>
           <p className="co-conn-text">
             Connected as <strong>{login}</strong>. Your agent can prepare PRs;
-            approving one here opens the draft directly on your behalf.
+            sending one here publishes the reviewed PR on GitHub.
           </p>
           {disconnectError && <p className="co-conn-error">{disconnectError}</p>}
           <div className="co-conn-actions">

@@ -6,13 +6,15 @@ import { ContributionCard } from './ContributionCard.jsx'
 //
 //   Ready for review — status=prepared, waiting on the owner's go-ahead. These
 //                      cards carry the review flow (expand the staged plan,
-//                      Approve/Feedback/Dismiss), so only this group gets the
-//                      handlers.
+//                      Send/Feedback/Dismiss), so only this group gets the
+//                      submit + dismiss handlers.
 //   Open             — status submitting/draft/open: live on GitHub, or in
-//                      flight to it (refreshed on mount + daily).
+//                      flight to it (refreshed on mount + daily). Cards may
+//                      still return to the source chat when GitHub activity
+//                      needs agent follow-up.
 //   History          — merged/closed/commented/abandoned and any unknown
 //                      future status.
-export function Feed({ groups, onApprove, onFeedback, onDismiss, loadDiff }) {
+export function Feed({ groups, onSend, onFeedback, onDismiss, loadDiff }) {
   const { ready, open, history } = groups
   return (
     <>
@@ -20,14 +22,14 @@ export function Feed({ groups, onApprove, onFeedback, onDismiss, loadDiff }) {
         <section className="co-section">
           <h2 className="co-section-title">Ready for review</h2>
           <p className="co-section-hint">
-            Open a card to review the prepared work. PR cards can be approved
-            for direct draft submission; other records return to chat.
+            Review exactly what would go public. Sending a PR publishes it to
+            GitHub directly; feedback returns to the source chat.
           </p>
           {ready.map((rec) => (
             <ContributionCard
               key={rec.id}
               rec={rec}
-              onApprove={onApprove}
+              onSend={onSend}
               onFeedback={onFeedback}
               onDismiss={onDismiss}
               loadDiff={loadDiff}
@@ -40,7 +42,7 @@ export function Feed({ groups, onApprove, onFeedback, onDismiss, loadDiff }) {
         <section className="co-section">
           <h2 className="co-section-title">Open</h2>
           {open.map((rec) => (
-            <ContributionCard key={rec.id} rec={rec} />
+            <ContributionCard key={rec.id} rec={rec} onFeedback={onFeedback} />
           ))}
         </section>
       )}

@@ -248,6 +248,24 @@ export const CSS = `
 }
 .co-plan-coauthor strong { color: var(--green); font-weight: 700; }
 
+.co-attention {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  margin-top: 10px; padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 26%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+.co-attention-copy {
+  min-width: 0; display: flex; flex-direction: column; gap: 4px;
+}
+.co-attention-title {
+  font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.3;
+}
+.co-attention-text {
+  margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 /* Review view: the staged plan a prepared card expands into. Prose stays in
    the app font; the diff is monospace and scrolls INSIDE its own block (both
    axes) so a wide hunk never stretches the card or the page. */
@@ -315,9 +333,39 @@ export const CSS = `
   font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.5;
   color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+.co-diff-shell {
+  align-self: stretch; display: flex; flex-direction: column;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  background: var(--surface2, var(--bg));
+}
+.co-diff-overview {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  min-height: 38px; padding: 8px 10px; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.co-diff-overview-main,
+.co-diff-overview-stats {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono, var(--font)); font-size: 12px; line-height: 1.2;
+}
+.co-diff-overview-main strong {
+  color: var(--text); font-weight: 700;
+}
+.co-diff-overview-main span { color: var(--muted); }
+.co-diff-stat {
+  min-width: 34px; padding: 3px 7px; border-radius: 7px;
+  text-align: center; font-weight: 650;
+}
+.co-diff-stat.is-add {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 11%, transparent);
+}
+.co-diff-stat.is-del {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
 .co-diff-view {
   align-self: stretch; max-height: 420px; overflow: auto;
-  border: 1px solid var(--border); border-radius: 8px;
   background: var(--surface2, var(--bg));
 }
 .co-diff-file + .co-diff-file { border-top: 1px solid var(--border); }
@@ -327,26 +375,61 @@ export const CSS = `
   min-width: max-content; padding: 8px 10px;
   background: var(--surface2, var(--bg)); border-bottom: 1px solid var(--border);
 }
+.co-diff-file-toggle {
+  display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 0; border: 0; background: transparent; color: var(--text);
+  font: inherit; cursor: pointer;
+}
+.co-diff-caret {
+  width: 7px; height: 7px; flex: 0 0 auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg); color: var(--muted);
+  transition: transform .14s ease;
+}
+.co-diff-file-toggle[aria-expanded="false"] .co-diff-caret {
+  transform: rotate(-45deg);
+}
 .co-diff-file-name {
   font-family: var(--mono, var(--font)); font-size: 12px; font-weight: 650;
+}
+.co-diff-file-meta {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--mono, var(--font)); font-size: 12px;
+}
+.co-diff-kind {
+  padding: 2px 6px; border-radius: 6px; color: var(--muted);
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.co-diff-kind.is-added {
+  color: var(--green);
+  background: color-mix(in srgb, var(--green) 11%, transparent);
+}
+.co-diff-kind.is-deleted {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+.co-diff-kind.is-renamed {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .co-diff-file-stat {
   font-family: var(--mono, var(--font)); font-size: 12px; color: var(--muted);
 }
 .co-diff-lines { min-width: max-content; padding: 4px 0; }
 .co-diff-row {
-  display: grid; grid-template-columns: 48px 48px 24px max-content;
+  display: grid; grid-template-columns: 44px 44px 22px max-content;
   min-width: max-content; font-family: var(--mono, var(--font));
-  font-size: 12px; line-height: 1.5;
+  font-size: 12px; line-height: 1.55;
 }
 .co-diff-row.is-add {
-  background: color-mix(in srgb, var(--green) 12%, transparent);
+  background: color-mix(in srgb, var(--green) 10%, transparent);
 }
 .co-diff-row.is-del {
-  background: color-mix(in srgb, var(--danger) 11%, transparent);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
 }
 .co-diff-num {
-  padding: 0 8px; color: var(--muted); text-align: right;
+  padding: 0 8px; color: color-mix(in srgb, var(--muted) 82%, transparent); text-align: right;
   user-select: none;
 }
 .co-diff-mark {
@@ -384,4 +467,13 @@ export const CSS = `
 .co-empty-title { font-size: 17px; font-weight: 700; color: var(--text); }
 .co-empty-text { margin: 0; font-size: 14px; line-height: 1.6; }
 /* /mobius-ui:Empty */
+
+@media (max-width: 520px) {
+  .co-attention {
+    flex-direction: column; align-items: stretch;
+  }
+  .co-diff-overview {
+    align-items: flex-start; flex-direction: column; gap: 7px;
+  }
+}
 `

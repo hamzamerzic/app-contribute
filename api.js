@@ -87,11 +87,11 @@ export function disconnect(token) {
   })
 }
 
-// Approval button path: the platform claims the prepared PR record, recomputes
-// the actual branch diff, pushes the branch to the owner's fork, opens the
-// draft PR, and writes the GitHub URL back to the record. The token stays
-// server-side; this app receives only the updated ledger record or an
-// actionable error plus the rolled-back record when available.
+// Send button path: the platform claims the prepared PR record, recomputes the
+// actual branch diff, pushes the branch to the owner's fork, opens the PR on
+// GitHub, and writes the URL back to the record. The token stays server-side;
+// this app receives only the updated ledger record or an actionable error plus
+// the rolled-back record when available.
 export async function submitContribution({ appId, token, rec }) {
   try {
     const r = await fetch(
