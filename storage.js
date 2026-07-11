@@ -54,19 +54,19 @@ export async function loadFullDiff(rec) {
   }
 }
 
-// Dismiss = CAS-flip a still-`prepared` record to `abandoned`. Two paths to
-// the same If-Match semantics: the runtime's own CAS surface
-// (durableWrite({ifMatch}) + _getWithVersion — the same guarded pairing
-// useDocument uses) keeps the local mirror and subscribers coherent, so
-// prefer it; on an older runtime without it, fall back to raw authenticated
-// fetch against the app's own storage path. Either way a 412 means someone
-// (the agent claiming it, another tab) won the race: re-read once and retry
-// only if the record is still `prepared`.
+// Drop and Undrop are the SAME guarded status flip in opposite directions, so
+// they share one CAS engine. Two paths to the same If-Match semantics: the
+// runtime's own CAS surface (durableWrite({ifMatch}) + _getWithVersion — the
+// same guarded pairing useDocument uses) keeps the local mirror and subscribers
+// coherent, so prefer it; on an older runtime without it, fall back to raw
+// authenticated fetch against the app's own storage path. Either way a 412 means
+// someone (the agent claiming it, another tab) won the race: re-read once and
+// retry only if the record is still in the expected `from` status.
 //
 // Outcomes: {ok: rec} flipped | {conflict: rec|null} changed under us |
 // {gone: true} record vanished | {error: string} ('offline' when the
 // network verdict says so).
-export async function abandonPrepared({ appId, token, rec }) {
+async function casFlipStatus({ appId, token, rec, from, to }) {
   const path = rec.path || RECORD_PREFIX + rec.id + '.json'
   const s = window.mobius && window.mobius.storage
   const runtimeCas = !!(s && typeof s.durableWrite === 'function' &&
@@ -96,13 +96,13 @@ export async function abandonPrepared({ appId, token, rec }) {
       return { error: String((err && err.message) || err) }
     }
     if (!current || typeof current !== 'object') return { gone: true }
-    if (current.status !== 'prepared') return { conflict: current }
+    if (current.status !== from) return { conflict: current }
     if (!version) {
       // Platform-skew fallback: the version read SUCCEEDED but carried no
       // ETag — this backend predates storage CAS, so the PUT below is
       // unconditioned. Tighten the race window the only way available:
       // re-read immediately before the blind write and require the record
-      // is still `prepared`.
+      // is still in the `from` status.
       let recheck = null
       try {
         if (runtimeCas) {
@@ -120,12 +120,12 @@ export async function abandonPrepared({ appId, token, rec }) {
         return { error: String((err && err.message) || err) }
       }
       if (!recheck || typeof recheck !== 'object') return { gone: true }
-      if (recheck.status !== 'prepared') return { conflict: recheck }
+      if (recheck.status !== from) return { conflict: recheck }
       current = recheck
     }
     const next = {
       ...current,
-      status: 'abandoned',
+      status: to,
       updated_at: new Date().toISOString(),
     }
     try {
@@ -155,4 +155,16 @@ export async function abandonPrepared({ appId, token, rec }) {
   // Two straight 412s: the record keeps changing — treat as a conflict and
   // let the caller refresh the feed rather than fight for the write.
   return { conflict: null }
+}
+
+// Drop = CAS-flip a still-`prepared` record to `abandoned`.
+export async function abandonPrepared({ appId, token, rec }) {
+  return casFlipStatus({ appId, token, rec, from: 'prepared', to: 'abandoned' })
+}
+
+// Undrop = the reverse: CAS-flip a `abandoned` record back to `prepared` so it
+// returns to Ready for review (the plan, diff blob, and branch are untouched by
+// a drop, so a restored record is fully reviewable/sendable again).
+export async function restoreAbandoned({ appId, token, rec }) {
+  return casFlipStatus({ appId, token, rec, from: 'abandoned', to: 'prepared' })
 }

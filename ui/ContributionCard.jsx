@@ -214,6 +214,10 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
   const [sendNote, setSendNote] = useState(null)
   const [sending, setSending] = useState(false)
   const [dismissing, setDismissing] = useState(false)
+  // Dismiss abandons the prepared record (a CAS flip the skill treats as
+  // terminal), so it must never fire on a single stray tap. The first tap arms
+  // this in-card confirm; only the explicit Discard inside it runs dismiss().
+  const [confirmingDismiss, setConfirmingDismiss] = useState(false)
   const [note, setNote] = useState(null)
   const isPr = rec.plan?.action === 'pr' || rec.type === 'pr'
 
@@ -261,34 +265,61 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
       }
     } finally {
       setDismissing(false)
+      setConfirmingDismiss(false)
     }
   }
 
   return (
     <>
-      <div className="co-review-actions">
-        {isPr ? (
+      {confirmingDismiss ? (
+        <div className="co-confirm" role="alertdialog" aria-label="Confirm drop">
+          <p className="co-confirm-text">
+            Drop this prepared contribution? It moves to History — you can undrop
+            it there anytime.
+          </p>
+          <div className="co-confirm-actions">
+            <button
+              type="button"
+              className="co-btn co-btn-sm"
+              disabled={dismissing}
+              onClick={() => setConfirmingDismiss(false)}
+            >
+              Keep it
+            </button>
+            <button
+              type="button"
+              className="co-btn co-btn-sm co-btn-danger"
+              disabled={dismissing}
+              onClick={dismiss}
+            >
+              {dismissing ? 'Dropping…' : 'Drop'}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="co-review-actions">
+          {isPr ? (
+            <button
+              type="button"
+              className="co-btn co-btn-primary"
+              disabled={sending}
+              onClick={send}
+            >
+              {sending ? 'Sending…' : 'Send PR'}
+            </button>
+          ) : null}
+          <button type="button" className="co-btn" onClick={feedback}>
+            Feedback
+          </button>
           <button
             type="button"
-            className="co-btn co-btn-primary"
-            disabled={sending}
-            onClick={send}
+            className="co-btn co-btn-danger"
+            onClick={() => setConfirmingDismiss(true)}
           >
-            {sending ? 'Sending…' : 'Send PR for review'}
+            Drop
           </button>
-        ) : null}
-        <button type="button" className="co-btn" onClick={feedback}>
-          Leave feedback
-        </button>
-        <button
-          type="button"
-          className="co-btn co-btn-danger"
-          disabled={dismissing}
-          onClick={dismiss}
-        >
-          {dismissing ? 'Dismissing…' : 'Dismiss'}
-        </button>
-      </div>
+        </div>
+      )}
       {!isPr ? (
         <p className="co-review-note">
           Only prepared PRs can be sent to GitHub from here right now.
@@ -300,11 +331,54 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
   )
 }
 
+// Undrop: bring a dropped (abandoned) record back to Ready for review. No
+// confirm — restoring is non-destructive (the opposite of Drop), one tap. Its
+// outcome messaging mirrors ReviewActions' dismiss so a conflict/offline reads
+// the same everywhere.
+function UndropAction({ rec, onRestore }) {
+  const [restoring, setRestoring] = useState(false)
+  const [note, setNote] = useState(null)
+
+  async function restore() {
+    setRestoring(true)
+    setNote(null)
+    try {
+      const outcome = (await onRestore(rec)) || {}
+      if (outcome.conflict !== undefined) {
+        setNote('This contribution just changed under you — the feed has been refreshed.')
+      } else if (outcome.gone) {
+        setNote('This record no longer exists — the feed has been refreshed.')
+      } else if (outcome.error) {
+        setNote(outcome.error === 'offline'
+          ? 'You are offline — undropping needs a connection; try again once you are back online.'
+          : 'Could not undrop: ' + outcome.error)
+      }
+    } finally {
+      setRestoring(false)
+    }
+  }
+
+  return (
+    <div className="co-history-actions">
+      <button
+        type="button"
+        className="co-btn co-btn-sm"
+        disabled={restoring}
+        onClick={restore}
+      >
+        {restoring ? 'Undropping…' : 'Undrop'}
+      </button>
+      {note && <p className="co-review-error">{note}</p>}
+    </div>
+  )
+}
+
 export function ContributionCard({
   rec,
   onSend,
   onFeedback,
   onDismiss,
+  onRestore,
   loadDiff,
 }) {
   const status = rec.status || 'prepared'
@@ -409,6 +483,9 @@ export function ContributionCard({
             onDismiss={onDismiss}
           />
         </div>
+      )}
+      {status === 'abandoned' && typeof onRestore === 'function' && (
+        <UndropAction rec={rec} onRestore={onRestore} />
       )}
     </div>
   )

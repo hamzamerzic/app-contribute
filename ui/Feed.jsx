@@ -6,15 +6,16 @@ import { ContributionCard } from './ContributionCard.jsx'
 //
 //   Ready for review — status=prepared, waiting on the owner's go-ahead. These
 //                      cards carry the review flow (expand the staged plan,
-//                      Send/Feedback/Dismiss), so only this group gets the
-//                      submit + dismiss handlers.
+//                      Send/Feedback/Drop), so only this group gets the
+//                      submit + drop handlers.
 //   Open             — status submitting/draft/open: live on GitHub, or in
 //                      flight to it (refreshed on mount + daily). Cards may
 //                      still return to the source chat when GitHub activity
 //                      needs agent follow-up.
 //   History          — merged/closed/commented/abandoned and any unknown
-//                      future status.
-export function Feed({ groups, onSend, onFeedback, onDismiss, loadDiff }) {
+//                      future status. A dropped (abandoned) card gets an Undrop
+//                      button (onRestore) to send it back to Ready for review.
+export function Feed({ groups, onSend, onFeedback, onDismiss, onRestore, loadDiff }) {
   const { ready, open, history } = groups
   return (
     <>
@@ -51,7 +52,7 @@ export function Feed({ groups, onSend, onFeedback, onDismiss, loadDiff }) {
         <section className="co-section">
           <h2 className="co-section-title">History</h2>
           {history.map((rec) => (
-            <ContributionCard key={rec.id} rec={rec} />
+            <ContributionCard key={rec.id} rec={rec} onRestore={onRestore} />
           ))}
         </section>
       )}

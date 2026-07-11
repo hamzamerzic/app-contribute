@@ -465,7 +465,22 @@ export const CSS = `
   color: var(--accent);
 }
 .co-review-link { font-size: 13px; color: var(--accent); }
-.co-review-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Keep Send / Feedback / Dismiss on ONE row: no wrap, and let each button share
+   the width equally (min-width:0 lets them shrink to fit a narrow phone). */
+.co-review-actions { display: flex; flex-wrap: nowrap; gap: 8px; }
+.co-review-actions .co-btn { flex: 1 1 0; min-width: 0; padding-left: 10px; padding-right: 10px; }
+/* Two-tap confirm before a destructive Dismiss — deliberate, in-card, reversible. */
+.co-confirm {
+  display: flex; flex-direction: column; gap: 10px; padding: 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+}
+.co-confirm-text { margin: 0; font-size: 14px; line-height: 1.45; color: var(--text); }
+.co-confirm-actions { display: flex; gap: 8px; }
+.co-confirm-actions .co-btn { flex: 1 1 0; min-width: 0; }
+/* Undrop lives on a dropped card in History — a single, content-width button. */
+.co-history-actions { display: flex; gap: 8px; margin-top: 2px; }
 .co-review-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
 .co-review-error { margin: 0; font-size: 13px; line-height: 1.5; color: var(--danger); }
 

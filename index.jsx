@@ -22,7 +22,7 @@ import {
   countStats,
   groupRecords,
 } from './domain.js'
-import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger } from './storage.js'
+import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger, restoreAbandoned } from './storage.js'
 import { fetchGithubStatus, fetchLiveStates, submitContribution } from './api.js'
 import { StatTiles } from './ui/StatTiles.jsx'
 import { ConnectionCard } from './ui/ConnectionCard.jsx'
@@ -279,6 +279,25 @@ export default function ContributeApp({ appId, token }) {
     return outcome
   }, [appId, token])
 
+  // Undrop = CAS flip a dropped record back to `prepared`. Mirrors onDismiss:
+  // on success it moves from History back to Ready for review in place; on a
+  // conflict/gone the feed reloads so the card reflects reality.
+  const onRestore = useCallback(async (rec) => {
+    const outcome = await restoreAbandoned({ appId, token, rec })
+    if (outcome.ok) {
+      const flipped = { ...outcome.ok, path: rec.path }
+      setRecords((prev) => prev.map((r) => (r.id === rec.id ? flipped : r)))
+      window.mobius?.signal?.('contribution_restored', { id: rec.id })
+    } else if (outcome.conflict !== undefined || outcome.gone) {
+      const ledger = await loadLedger()
+      if (!ledger.fromCache) {
+        setRecords(ledger.records)
+        cacheFeed(ledger.records)
+      }
+    }
+    return outcome
+  }, [appId, token])
+
   const stats = useMemo(() => countStats(records), [records])
   const groups = useMemo(() => groupRecords(records), [records])
   const isEmpty = records.length === 0
@@ -298,6 +317,7 @@ export default function ContributeApp({ appId, token }) {
             onSend={onSend}
             onFeedback={onFeedback}
             onDismiss={onDismiss}
+            onRestore={onRestore}
             loadDiff={loadFullDiff}
           />
         )}

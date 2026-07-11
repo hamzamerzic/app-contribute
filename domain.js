@@ -35,7 +35,9 @@ export const STATUS_LABELS = {
   merged: 'Merged',
   closed: 'Closed',
   commented: 'Commented',
-  abandoned: 'Abandoned',
+  // Status VALUE stays `abandoned` (the platform ledger contract); only the
+  // owner-facing wording is "Dropped" — matches the Drop / Undrop buttons.
+  abandoned: 'Dropped',
 }
 
 // Feed groups: Ready to propose (waiting on the owner's go-ahead), Open
