@@ -12,8 +12,11 @@
 //     needs_attention?, attention?, plan? }
 // A prepared record staged for review carries `plan`: { action, repo,
 // target_url?, title?, body_draft, branch?, repo_path?, base_sha?,
-// head_sha?, diff_sha256?, diff_stat?, diff_excerpt? } — the full diff
-// lives in the sibling storage file contributions/<id>.diff. `submitting`
+// head_sha?, diff_sha256?, diff_stat, diff_excerpt?(legacy, unused) } — the
+// review card renders its file list from the sibling storage file
+// contributions/<id>.diff, and falls back to parsing diff_stat when that
+// blob is missing, so diff_stat is the one diff field it always needs.
+// `submitting`
 // means the platform submit endpoint claimed the record (in flight); `commented` is the
 // terminal status for comment actions.
 

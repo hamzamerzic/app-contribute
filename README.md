@@ -106,7 +106,7 @@ shape:
     "body_draft": "…",          // the exact text that would go public
     "branch": "…", "repo_path": "…",
     "base_sha": "…", "head_sha": "…", "diff_sha256": "…",
-    "diff_stat": "…", "diff_excerpt": "…"
+    "diff_stat": "…"              // diff_excerpt is legacy — omit it
   }
 }
 ```
