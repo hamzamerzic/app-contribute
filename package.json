@@ -1,5 +1,8 @@
 {
   "name": "app-contribute",
   "private": true,
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
   "type": "module"
 }
