@@ -62,6 +62,9 @@ export function ConnectionCard({ conn, token, onChanged }) {
     setDeviceError('')
     setJustConnected(true)
     setTimeout(() => setJustConnected(false), 3000)
+    // Activation conversion — both the device flow and the PAT path funnel
+    // through here, so one signal covers the bottom of the connect funnel.
+    window.mobius?.signal?.('github_connected')
     // Tell the parent so it re-fetches status and re-runs the live refresh
     // now that GitHub is reachable.
     onChanged?.()
@@ -70,6 +73,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
   const startDeviceFlow = useCallback(async () => {
     setDeviceError('')
     setFlow('starting')
+    window.mobius?.signal?.('github_connect_started', { method: 'device' })
     pollGenRef.current += 1
     const myGen = pollGenRef.current
     try {
@@ -156,6 +160,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
     if (!value) return
     setPatError('')
     setPatSubmitting(true)
+    window.mobius?.signal?.('github_connect_started', { method: 'pat' })
     try {
       const res = await connectToken(token, value)
       if (!res.ok) {

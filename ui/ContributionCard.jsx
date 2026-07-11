@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
 import { parseDiffStat } from '../diff.js'
 import { FileDiffList } from './FileDiffList.jsx'
@@ -312,6 +312,14 @@ export function ContributionCard({
   const typeLabel = TYPE_LABELS[rec.type] || rec.type || 'Contribution'
   const when = timeAgo(rec.updated_at || rec.created_at)
   const [expanded, setExpanded] = useState(false)
+
+  // Reflection engagement signal: fire once each time the review opens, never
+  // on collapse. `expanded` only ever goes true for a plan card (both the
+  // Review toggle and the whole-card tap gate on hasPlan), so this is
+  // inherently scoped to real reviews and captures either open route.
+  useEffect(() => {
+    if (expanded) window.mobius?.signal?.('contribution_reviewed', { id: rec.id })
+  }, [expanded])
 
   // repo, optionally with a #number; both tolerate absence.
   let where = rec.repo || ''
