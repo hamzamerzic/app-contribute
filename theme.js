@@ -465,10 +465,15 @@ export const CSS = `
   color: var(--accent);
 }
 .co-review-link { font-size: 13px; color: var(--accent); }
-/* Keep Send / Feedback / Dismiss on ONE row: no wrap, and let each button share
-   the width equally (min-width:0 lets them shrink to fit a narrow phone). */
-.co-review-actions { display: flex; flex-wrap: nowrap; gap: 8px; }
-.co-review-actions .co-btn { flex: 1 1 0; min-width: 0; padding-left: 10px; padding-right: 10px; }
+/* Keep all three decisions on one line without giving compact Drop an equal
+   third of the row. The two forward actions absorb the flexible width; Drop
+   stays content-sized and visually secondary. */
+.co-review-actions {
+  align-self: stretch; display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) auto; gap: 8px;
+}
+.co-review-actions.is-secondary-only { grid-template-columns: minmax(0, 1fr) auto; }
+.co-review-actions .co-btn { width: 100%; min-width: 0; padding-inline: 10px; }
 /* Two-tap confirm before a destructive Dismiss — deliberate, in-card, reversible. */
 .co-confirm {
   display: flex; flex-direction: column; gap: 10px; padding: 12px;
@@ -506,4 +511,5 @@ export const CSS = `
     flex-direction: column; align-items: stretch;
   }
 }
+
 `

@@ -297,7 +297,7 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
           </div>
         </div>
       ) : (
-        <div className="co-review-actions">
+        <div className={`co-review-actions${isPr ? '' : ' is-secondary-only'}`}>
           {isPr ? (
             <button
               type="button"
@@ -313,7 +313,7 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
           </button>
           <button
             type="button"
-            className="co-btn co-btn-danger"
+            className="co-btn co-btn-sm co-btn-danger"
             onClick={() => setConfirmingDismiss(true)}
           >
             Drop
