@@ -947,6 +947,10 @@ export const CSS = `
   font: inherit; cursor: pointer;
   transition: color .14s ease, border-color .14s ease, background .14s ease, transform .1s ease;
 }
+.co-send-btn {
+  width: auto; min-width: 76px; padding: 0 12px; gap: 7px;
+  font-size: 12.5px; font-weight: 700;
+}
 .co-icon-btn.is-primary {
   border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
   background: color-mix(in srgb, var(--accent) 11%, var(--surface));
