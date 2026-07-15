@@ -7,25 +7,35 @@
 // falling back to a best-effort re-read before a blind write on older runtimes
 // that don't. Dismissal is ONLINE-ONLY (CAS needs a
 // live version read), which is why the manifest declares offline writes
-// "none". storage.list() has no offline mirror, so the last assembled feed
-// is also cached to feed-cache.json — get() DOES mirror offline — and used
-// when enumeration fails; that cache is what makes offline reads honest.
+// "none". The assembled feed is also cached to feed-cache.json for platforms
+// whose older storage runtime cannot enumerate from its offline mirror.
 
 const FEED_CACHE = 'feed-cache.json'
 const RECORD_PREFIX = 'contributions/'
 
 export async function loadLedger() {
-  const entries = await window.mobius.storage.list(RECORD_PREFIX)
-  if (entries === null) {
+  // Current platforms attach small JSON records to the bounded listing itself,
+  // replacing the old list-then-GET-every-record fan-out. Older runtimes ignore
+  // the options argument, and exceptional large/invalid entries intentionally
+  // omit content, so retain a narrow per-entry fallback for compatibility.
+  const entries = await window.mobius.storage.list(RECORD_PREFIX, {
+    includeContent: true,
+  })
+  if (
+    entries === null
+    || (entries.length === 0 && window.mobius.online === false)
+  ) {
     const cached = await window.mobius.storage.get(FEED_CACHE)
     return { records: cached || [], fromCache: true }
   }
   const records = []
   await Promise.all(entries
-    .filter((e) => e.type !== 'dir' && e.name.endsWith('.json'))
+    .filter((e) => e.type === 'file' && e.name.endsWith('.json'))
     .map(async (e) => {
       const path = RECORD_PREFIX + e.name
-      const rec = await window.mobius.storage.get(path)
+      const rec = Object.prototype.hasOwnProperty.call(e, 'content')
+        ? e.content
+        : await window.mobius.storage.get(path)
       // `path` rides along so subscriptions and the Dismiss CAS write address
       // the actual file even if its name ever drifts from rec.id. It only
       // reaches this app's own feed cache — dismissal writes start from a
