@@ -73,8 +73,8 @@ export async function fetchSourceStatus(token) {
 
 // Read-only local validation for every prepared review. This catches branch,
 // worktree, and stored-diff drift before the owner reaches the public Send
-// action. Older platforms return 404; the app keeps the feed usable and falls
-// back to any persisted submit error already present on the record.
+// action. A failed check keeps the feed usable and preserves any stronger
+// submit error already persisted on the record.
 export async function fetchReviewStatus(token, appId) {
   try {
     const r = await fetchRead(
@@ -84,7 +84,6 @@ export async function fetchReviewStatus(token, appId) {
     if (!r.ok) {
       return {
         ok: false,
-        unsupported: r.status === 404,
         status: r.status,
       }
     }

@@ -12,11 +12,11 @@
 # alone. When GitHub activity or failing checks need follow-up, the job adds a
 # `needs_attention` + `attention` payload so the app can offer a targeted agent
 # follow-up. Writes use compare-and-swap
-# (If-Match on the read's ETag) when the runtime returns one, so the scheduled
-# refresh avoids clobbering a concurrent writer — the agent claiming/submitting
-# a record, or the app's Dismiss button; older runtimes without an ETag fall
-# back to a best-effort write. On a lost race (412) the record is left for the
-# app's live refresh and the next scheduled run to reconcile.
+# (If-Match on the read's ETag), so the scheduled refresh cannot clobber a
+# concurrent writer — the agent claiming/submitting a record, or the app's
+# Dismiss button. If a version is unavailable, the record is skipped instead
+# of weakening the update to a blind write. On a lost race (412), it is left
+# for the app's live refresh and the next scheduled run to reconcile.
 #
 # Cron runs this as `mobius` with an EMPTY environment and passes the app's
 # numeric id as $1, so the script sets its own SERVICE_TOKEN + API_BASE_URL and
@@ -576,11 +576,14 @@ for alias, (name, rec, etag) in aliases.items():
       patch["attention"] = None
   if not patch:
     continue
+  if not etag:
+    print("contribute: skip %s — storage version unavailable" % name,
+          file=sys.stderr)
+    continue
   # One conditional write. If-Match pins the exact version this run read (and
   # computed the GraphQL verdict from), so a concurrent writer — the agent
-  # claiming/submitting a record, the app's Dismiss — is not clobbered when the
-  # runtime returns an ETag; an ETag-less older runtime falls back to a blind
-  # write. dict(rec) reapplies ONLY this job's own fields (status, attention,
+  # claiming/submitting a record, the app's Dismiss — cannot be clobbered.
+  # dict(rec) reapplies ONLY this job's own fields (status, attention,
   # observed GitHub state, updated_at) and preserves whatever fields other
   # writers added. On a 412 the record changed under us — skip it and let the
   # app's live refresh and the next scheduled run re-read and reapply if it still
@@ -588,7 +591,7 @@ for alias, (name, rec, etag) in aliases.items():
   updated = dict(rec)
   updated.update(patch)
   updated["updated_at"] = now
-  headers = {"If-Match": etag} if etag else {}
+  headers = {"If-Match": etag}
   try:
     _call("PUT", _record_path(name), updated, headers=headers)
   except urllib.error.HTTPError as exc:

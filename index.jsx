@@ -25,6 +25,7 @@ import {
 } from './domain.js'
 import { indexReviewStatus } from './review.js'
 import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger, restoreAbandoned } from './storage.js'
+import { createRefreshCoordinator } from './refresh.js'
 import {
   fetchGithubStatus,
   fetchLiveStates,
@@ -55,7 +56,7 @@ const CONTRIBUTION_VIEWS = ['contributions', 'sources']
 
 // The app's own icon, with a lettered fallback for installs whose icon route
 // 404s. Mirrors the App Store header pattern.
-function Header({ appId, fromCache }) {
+function Header({ appId, fromCache, omittedCount }) {
   return (
     <header className="co-header">
       <img
@@ -78,6 +79,11 @@ function Header({ appId, fromCache }) {
         <span className="co-subtitle">Review and share Möbius improvements</span>
         {fromCache && (
           <span className="co-offline-note">Offline — showing your last synced feed.</span>
+        )}
+        {!fromCache && omittedCount > 0 && (
+          <span className="co-offline-note" role="status">
+            {omittedCount} contribution {omittedCount === 1 ? 'record needs' : 'records need'} repair.
+          </span>
         )}
       </div>
     </header>
@@ -106,6 +112,7 @@ export default function ContributeApp({ appId, token }) {
   const [fromCache, setFromCache] = useState(false)
   const [conn, setConn] = useState({ state: 'unknown' })
   const [loading, setLoading] = useState(true)
+  const [omittedCount, setOmittedCount] = useState(0)
   const [view, setViewState] = useState(() => {
     try {
       const saved = sessionStorage.getItem('contribute-view-v2')
@@ -127,7 +134,6 @@ export default function ContributeApp({ appId, token }) {
   useEffect(() => { recordsRef.current = records }, [records])
   const connRef = useRef(conn)
   useEffect(() => { connRef.current = conn }, [conn])
-  const rescanRunningRef = useRef(false)
 
   // Every local ledger result must update the render, the callback mirror, and
   // the offline cache together. Keeping that write in one place prevents a
@@ -177,7 +183,7 @@ export default function ContributeApp({ appId, token }) {
       return indexed
     }
     const next = {
-      state: outcome.unsupported ? 'unsupported' : 'unavailable',
+      state: 'unavailable',
       byId: {},
       checkedAt: '',
     }
@@ -232,6 +238,7 @@ export default function ContributeApp({ appId, token }) {
       if (cancelled) return
       const recs = ledger.records
       recordsRef.current = recs
+      setOmittedCount(ledger.omitted.length)
       setRecords(recs)
       setFromCache(ledger.fromCache)
       setConn(status)
@@ -262,43 +269,47 @@ export default function ContributeApp({ appId, token }) {
     return () => { cancelled = true }
   }, [token, fetchRefreshed])
 
-  // One refresh path serves return-to-app, explicit Refresh, and a quiet
-  // visible-only poll. Contribution files are a dynamic directory, so the
-  // storage runtime cannot subscribe to future filenames; this bounded local
-  // rescan is what keeps newly staged cards and post-submit states live while
-  // the iframe remains open.
-  const rescanContributions = useCallback(async () => {
-    if (rescanRunningRef.current || document.visibilityState !== 'visible') return
-    rescanRunningRef.current = true
-    try {
-      const [ledger] = await Promise.all([
-        loadLedger(),
-        refreshReviewStatus(),
-      ])
-      if (!ledger.fromCache) {
-        let next = ledger.records
-        if (connRef.current.state === 'connected') {
-          next = await fetchRefreshed(next)
-        }
-        replaceFeed(reconcileLedgerSnapshot(recordsRef.current, next))
-        setFromCache(false)
+  // Event-driven liveness: refresh when the app becomes actionable again.
+  // Focus + visibility can fire together, and an online transition can land
+  // during either refresh, so one coordinator deduplicates concurrent work and
+  // preserves exactly one trailing refresh when an event arrives mid-flight.
+  // There is deliberately no timer: a hidden/idle app consumes no resources.
+  const refreshWorkRef = useRef(null)
+  const runRefreshWork = useCallback(async () => {
+    if (document.visibilityState !== 'visible') return
+    const [ledger] = await Promise.all([
+      loadLedger(),
+      refreshReviewStatus(),
+    ])
+    setOmittedCount(ledger.omitted.length)
+    if (!ledger.fromCache) {
+      let next = ledger.records
+      if (connRef.current.state === 'connected') {
+        next = await fetchRefreshed(next)
       }
-    } finally {
-      rescanRunningRef.current = false
+      replaceFeed(reconcileLedgerSnapshot(recordsRef.current, next))
+      setFromCache(false)
     }
   }, [fetchRefreshed, refreshReviewStatus, replaceFeed])
+  refreshWorkRef.current = runRefreshWork
+  const refreshCoordinatorRef = useRef(null)
+  if (!refreshCoordinatorRef.current) {
+    refreshCoordinatorRef.current = createRefreshCoordinator(
+      () => refreshWorkRef.current(),
+    )
+  }
 
   useEffect(() => {
-    const rescan = () => { rescanContributions() }
-    const interval = window.setInterval(rescan, 15000)
-    document.addEventListener('visibilitychange', rescan)
-    window.addEventListener('focus', rescan)
+    const requestRefresh = refreshCoordinatorRef.current
+    document.addEventListener('visibilitychange', requestRefresh)
+    window.addEventListener('focus', requestRefresh)
+    window.addEventListener('online', requestRefresh)
     return () => {
-      window.clearInterval(interval)
-      document.removeEventListener('visibilitychange', rescan)
-      window.removeEventListener('focus', rescan)
+      document.removeEventListener('visibilitychange', requestRefresh)
+      window.removeEventListener('focus', requestRefresh)
+      window.removeEventListener('online', requestRefresh)
     }
-  }, [rescanContributions])
+  }, [])
 
   const setView = useCallback((next) => {
     if (!CONTRIBUTION_VIEWS.includes(next)) next = 'contributions'
@@ -450,7 +461,7 @@ export default function ContributeApp({ appId, token }) {
     <div className="co-root">
       <style>{CSS}</style>
       <div ref={pageRef} className={'co-page' + (view === 'sources' ? ' is-sources' : '')}>
-        <Header appId={appId} fromCache={fromCache} />
+      <Header appId={appId} fromCache={fromCache} omittedCount={omittedCount} />
         <nav className="co-tabs" role="tablist" aria-label="Contribute views">
           <button
             type="button"

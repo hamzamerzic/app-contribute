@@ -1,7 +1,7 @@
 // Pure helpers for the Ready-for-review validity layer. The platform returns
-// one local, read-only verdict per prepared record; these helpers keep the UI
-// tolerant of older platforms and older records without weakening Send-time
-// validation.
+// one local, read-only verdict per prepared record. Send still performs its
+// own authoritative validation; this layer makes invalidated work visible
+// before the user attempts to submit it.
 
 export function indexReviewStatus(payload) {
   const byId = {}
@@ -27,9 +27,8 @@ export function indexReviewStatus(payload) {
 export function reviewStateFor(rec, reviewStatus) {
   const direct = reviewStatus?.byId?.[rec?.id]
   if (direct) return direct
-  // Before the companion platform route is restarted, preserve the most
-  // important safety signal from an earlier failed Send instead of painting a
-  // stale card as healthy.
+  // Preserve the strongest locally persisted signal if a status refresh is
+  // temporarily unavailable instead of painting a failed submission healthy.
   if (rec?.status === 'prepared' && rec?.last_submit_error) {
     return {
       state: 'needs_refresh',

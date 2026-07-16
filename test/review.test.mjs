@@ -21,10 +21,10 @@ test('indexes only recognized review verdicts', () => {
   assert.equal(indexed.checkedAt, '2026-07-15T02:00:00Z')
 })
 
-test('keeps a persisted submit failure visible on an older platform', () => {
+test('keeps a persisted submit failure visible when a status is unavailable', () => {
   const state = reviewStateFor({
     id: 'old', status: 'prepared', last_submit_error: 'Branch changed.',
-  }, { state: 'unsupported', byId: {} })
+  }, { state: 'unavailable', byId: {} })
   assert.equal(state.state, 'needs_refresh')
   assert.equal(state.code, 'previous_submit_failure')
 })
