@@ -450,7 +450,7 @@ export const CSS = `
 }
 .co-btn:active { transform: scale(0.97); }
 .co-btn:disabled { opacity: 0.5; cursor: default; }
-.co-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.co-btn-primary { background: var(--accent-hover, var(--accent)); border-color: var(--accent-hover, var(--accent)); color: var(--accent-fg); }
 .co-btn-danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); }
 .co-btn-quiet { border-color: transparent; background: transparent; color: var(--accent); }
 .co-btn-sm { min-height: 44px; padding: 9px 12px; font-size: 13px; }
