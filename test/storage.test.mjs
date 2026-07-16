@@ -51,6 +51,31 @@ test('ledger isolates entries without batched content without request fan-out', 
   assert.deepEqual(gets, [])
 })
 
+test('ledger keeps a bounded compatibility path for metadata-only runtimes', async () => {
+  const gets = []
+  globalThis.window = {
+    mobius: {
+      storage: {
+        async list() {
+          return [
+            { name: 'a.json', path: 'contributions/a.json', type: 'file', size: 120 },
+            { name: 'b.json', path: 'contributions/b.json', type: 'file', size: 180 },
+          ]
+        },
+        async get(path) {
+          gets.push(path)
+          return { id: path.endsWith('a.json') ? 'a' : 'b' }
+        },
+      },
+    },
+  }
+
+  const result = await loadLedger()
+  assert.deepEqual(result.records.map((record) => record.id), ['a', 'b'])
+  assert.deepEqual(result.omitted, [])
+  assert.deepEqual(gets, ['contributions/a.json', 'contributions/b.json'])
+})
+
 test('an offline empty mirror falls back to the assembled feed cache', async () => {
   globalThis.window = {
     mobius: {

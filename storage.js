@@ -9,13 +9,16 @@
 
 const FEED_CACHE = 'feed-cache.json'
 const RECORD_PREFIX = 'contributions/'
+const LEGACY_FILE_MAX = 64 * 1024
+const LEGACY_PAGE_MAX = 1024 * 1024
+const LEGACY_RECORD_MAX = 100
 
 export async function loadLedger() {
-  // The platform pages include-content listings at its byte-budget boundary,
-  // so every valid contribution record arrives in the listing itself. Never
-  // fall back to one GET per entry: a malformed/oversized record is isolated
-  // and reported to the UI instead of turning one refresh into an unbounded
-  // request fan-out.
+  // Current platforms page include-content listings at a bounded byte budget.
+  // A pre-batch runtime ignores the option and returns metadata for every JSON
+  // record, so retain a strictly bounded sequential fallback for that one
+  // recognizable shape. Mixed responses and oversized sets never fan out:
+  // their exceptional entries are isolated and reported to the UI instead.
   const entries = await window.mobius.storage.list(RECORD_PREFIX, {
     includeContent: true,
   })
@@ -28,10 +31,33 @@ export async function loadLedger() {
   }
   const records = []
   const omitted = []
-  for (const entry of entries) {
-    if (entry.type !== 'file' || !entry.name.endsWith('.json')) continue
+  const jsonEntries = entries.filter((entry) =>
+    entry.type === 'file' && entry.name.endsWith('.json'))
+  const hasBatchedContent = jsonEntries.some((entry) =>
+    Object.prototype.hasOwnProperty.call(entry, 'content'))
+  const legacyBytes = jsonEntries.reduce((total, entry) => (
+    total + (Number.isFinite(entry.size) ? entry.size : LEGACY_PAGE_MAX + 1)
+  ), 0)
+  const useLegacyFallback = jsonEntries.length > 0
+    && !hasBatchedContent
+    && jsonEntries.length <= LEGACY_RECORD_MAX
+    && jsonEntries.every((entry) => Number.isFinite(entry.size)
+      && entry.size <= LEGACY_FILE_MAX)
+    && legacyBytes <= LEGACY_PAGE_MAX
+
+  for (const entry of jsonEntries) {
+    const path = entry.path || RECORD_PREFIX + entry.name
+    if (useLegacyFallback) {
+      const rec = await window.mobius.storage.get(path)
+      if (rec && typeof rec === 'object' && rec.id) {
+        records.push({ ...rec, path })
+      } else {
+        omitted.push(path)
+      }
+      continue
+    }
     if (!Object.prototype.hasOwnProperty.call(entry, 'content')) {
-      omitted.push(entry.path || RECORD_PREFIX + entry.name)
+      omitted.push(path)
       continue
     }
     const rec = entry.content
@@ -40,9 +66,9 @@ export async function loadLedger() {
     // reaches this app's own feed cache — dismissal writes start from a
     // fresh server read, so the field never lands in the ledger files.
     if (rec && typeof rec === 'object' && rec.id) {
-      records.push({ ...rec, path: entry.path || RECORD_PREFIX + entry.name })
+      records.push({ ...rec, path })
     } else {
-      omitted.push(entry.path || RECORD_PREFIX + entry.name)
+      omitted.push(path)
     }
   }
   return { records, fromCache: false, omitted }
