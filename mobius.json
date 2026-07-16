@@ -1,7 +1,7 @@
 {
   "id": "contribute",
   "name": "Contribute",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "See what your agent has proposed upstream \u2014 pull requests, issues, and comments across the M\u00f6bius ecosystem, from prepared to merged.",
   "author": "mobius-os",
   "license": "MIT",
@@ -39,6 +39,7 @@
     "theme.js",
     "domain.js",
     "review.js",
+    "refresh.js",
     "stack.js",
     "source-map.js",
     "diff.js",
