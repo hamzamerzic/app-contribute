@@ -29,15 +29,68 @@ export const TYPE_LABELS = {
 
 export const STATUS_LABELS = {
   prepared: 'Ready',
-  submitting: 'Submitting',
+  submitting: 'Publishing',
   draft: 'Draft',
-  open: 'Open',
+  open: 'Sent',
   merged: 'Merged',
-  closed: 'Closed',
+  closed: 'Not merged',
   commented: 'Commented',
   // Status VALUE stays `abandoned` (the platform ledger contract); only the
   // owner-facing wording is "Dropped" — matches the Drop / Undrop buttons.
   abandoned: 'Dropped',
+}
+
+// Plain-language narration for the lifecycle state the owner actually sees.
+// STATUS_LABELS stays the short, color-coded chip token (Ready, Sent, Merged);
+// this is the human sentence that leads the card — it sets a non-technical
+// owner's expectations (how long a step takes, what a settled state means).
+// The Git vocabulary stays available in detail views, never as the headline.
+export const STATUS_NARRATION = {
+  prepared: 'Waiting for your OK',
+  submitting: 'Publishing — this can take up to a minute',
+  draft: 'Sent as a draft — maintainers review it once it is marked ready',
+  open: 'Sent — maintainers will review it; this can take days',
+  merged: 'Merged — this improvement is now shared with everyone',
+  closed: 'Not merged — tap to see why',
+  commented: 'Comment posted',
+  abandoned: 'Dropped — you can undrop it from History anytime',
+}
+
+// A record flagged needs_attention leads with the attention callout instead of
+// its lifecycle narration. The most common cause is a failed automated check,
+// so that is the callout's default headline/detail when the platform did not
+// send a more specific reason.
+export const ATTENTION_HEADLINE = 'Automated tests flagged something'
+export const ATTENTION_DETAIL = 'Your agent can look and sort it out.'
+
+// The one human line for a record's current lifecycle state. Returns '' for a
+// needs_attention record — the attention callout owns that state's copy — and
+// for any unknown future status, so the caller simply omits the line.
+export function statusNarration(rec) {
+  if (!rec || typeof rec !== 'object' || rec.needs_attention) return ''
+  return STATUS_NARRATION[rec.status] || ''
+}
+
+// Backend problem codes → one short, human headline. The review-status and
+// submit endpoints tag every blocking problem with a stable `code`; the raw
+// message is Git jargon (a moved ref, a diff-hash mismatch, a diverged fork).
+// The card leads the alert with this headline and keeps the raw message behind
+// a Details disclosure. An unmapped code returns '' so the caller falls back to
+// the raw message (lenient read — a new backend code still shows something).
+export const PROBLEM_HEADLINES = {
+  branch_moved: 'This changed since you reviewed it — ask your agent to refresh it',
+  head_moved: 'This changed since you reviewed it — ask your agent to refresh it',
+  base_moved: 'The target branch moved on — ask your agent to refresh it',
+  diff_changed: 'This changed since you reviewed it — ask your agent to refresh it',
+  diff_mismatch: 'This changed since you reviewed it — ask your agent to refresh it',
+  worktree_dirty: 'The files changed after review — ask your agent to refresh it',
+  fork_diverged: 'Your GitHub copy has drifted from the original — ask your agent to sort it out',
+  previous_submit_failure: 'The last send did not go through — ask your agent to take another look',
+}
+
+export function problemHeadline(code) {
+  if (typeof code !== 'string' || !code) return ''
+  return PROBLEM_HEADLINES[code] || ''
 }
 
 // Reconcile server/storage results into the current ledger without losing the
