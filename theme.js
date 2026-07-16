@@ -117,6 +117,7 @@ export const CSS = `
 .co-sources-head h2 { margin: 0; font-size: 18px; line-height: 1.3; letter-spacing: -0.015em; }
 .co-sources-head p { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
 .co-sources-head p strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.co-sources-intro { color: color-mix(in srgb, var(--muted) 88%, var(--text)); }
 .co-sources-fresh {
   flex: 0 0 auto; display: flex; align-items: center; gap: 9px;
   color: var(--muted); font-size: 11.5px; white-space: nowrap;
@@ -495,6 +496,17 @@ export const CSS = `
 .co-conn-divider::before, .co-conn-divider::after {
   content: ''; flex: 1; height: 1px; background: var(--border);
 }
+/* The classic-PAT form, collapsed behind a quiet disclosure when the one-tap
+   device flow is the recommended path. */
+.co-conn-advanced { display: flex; flex-direction: column; gap: 12px; }
+.co-conn-advanced-toggle {
+  align-self: center; min-height: 44px; padding: 6px 10px;
+  border: 0; background: transparent; cursor: pointer;
+  font-family: var(--font); font-size: 12.5px; color: var(--muted);
+}
+@media (hover: hover) {
+  .co-conn-advanced-toggle:hover { color: var(--text); }
+}
 
 .co-section { margin-top: 24px; }
 .co-section-headline { display: flex; align-items: center; gap: 8px; }
@@ -664,6 +676,9 @@ export const CSS = `
   background: color-mix(in srgb, var(--danger) 13%, transparent);
   color: var(--danger);
 }
+/* The one plain-language line under the chip: what this state means for the
+   owner, in a calm muted voice below the title. */
+.co-card-status { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 .co-card-summary { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
 .co-card-meta {
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
@@ -714,6 +729,14 @@ export const CSS = `
 }
 .co-alert > strong { color: var(--text); font-size: 12.5px; }
 .co-alert .co-btn { align-self: flex-start; }
+/* The raw Git message, tucked behind a Details disclosure under the headline. */
+.co-alert-details > summary {
+  cursor: pointer; font-size: 12px; color: var(--muted); min-height: 38px;
+  display: inline-flex; align-items: center; list-style: none;
+}
+.co-alert-details > summary::-webkit-details-marker { display: none; }
+.co-alert-details[open] > summary { margin-bottom: 5px; }
+.co-alert-details > .co-alert-text { margin: 0; }
 
 .co-attention {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
@@ -755,6 +778,12 @@ export const CSS = `
   color: var(--green); font-size: 12px; line-height: 1.2;
 }
 .co-review-coauthor strong { color: var(--green); font-weight: 700; }
+/* One calm reassurance line above the diff, backed by the source-only
+   allowlist. Muted, not a banner — it states what is already guaranteed. */
+.co-review-assurance {
+  align-self: stretch; margin: 0; font-size: 12.5px; line-height: 1.5;
+  color: var(--muted);
+}
 .co-review-section {
   align-self: stretch; display: flex; flex-direction: column; gap: 8px;
 }
@@ -1021,6 +1050,21 @@ export const CSS = `
 .co-empty-title { font-size: 17px; font-weight: 700; color: var(--text); }
 .co-empty-text { margin: 0; font-size: 14px; line-height: 1.6; }
 /* /mobius-ui:Empty */
+
+/* How to contribute: the initiation affordance. In the empty state it stacks
+   centered under the invitation; the compact variant rides the top of a
+   populated feed as a bordered card the width of the feed. */
+.co-howto {
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  margin-top: 6px;
+}
+.co-howto-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+.co-howto-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
+.co-howto.is-compact {
+  align-items: flex-start; text-align: left; gap: 9px;
+  margin: 16px 0 0; padding: 13px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+}
 
 @media (max-width: 760px) {
   .co-page.is-sources {

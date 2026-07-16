@@ -22,7 +22,7 @@ import { Icon } from './Icons.jsx'
 const TOKEN_CREATE_URL =
   'https://github.com/settings/tokens/new?scopes=public_repo&description=Mobius'
 
-export function ConnectionCard({ conn, token, onChanged }) {
+export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
   // Device-flow machine: idle | starting | pending | complete. PAT submission
   // is independent state so the token form works even while a flow is pending.
   const [flow, setFlow] = useState('idle')
@@ -39,6 +39,12 @@ export function ConnectionCard({ conn, token, onChanged }) {
   const [disconnecting, setDisconnecting] = useState(false)
   const [disconnectError, setDisconnectError] = useState('')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The classic-PAT form is collapsed behind a disclosure when the device flow
+  // is available, so the default connect view is just the one-tap button.
+  const [patOpen, setPatOpen] = useState(false)
+  // Note shown if a dead-end "ask your agent" tap has nowhere to send (the app
+  // is open standalone, outside the Möbius shell).
+  const [askNote, setAskNote] = useState('')
   const pollRef = useRef(null)
   const pollGenRef = useRef(0)
 
@@ -215,6 +221,14 @@ export function ConnectionCard({ conn, token, onChanged }) {
   if (state === 'unknown') return null
 
   if (state === 'unsupported') {
+    function askAgentToUpdate() {
+      const outcome = (typeof onAskAgent === 'function' && onAskAgent(
+        'My Möbius platform is too old to connect GitHub for contributions. ' +
+        'Please update the platform to a version that supports it, then help me ' +
+        'connect my account.'
+      )) || {}
+      if (!outcome.ok) setAskNote('Open Contribute inside Möbius to reach your agent.')
+    }
     return (
       <div className="co-conn">
         <span className="co-conn-dot is-warn" aria-hidden="true" />
@@ -225,6 +239,14 @@ export function ConnectionCard({ conn, token, onChanged }) {
             update the platform, then you can connect GitHub and start
             contributing upstream.
           </p>
+          {typeof onAskAgent === 'function' ? (
+            <div className="co-conn-actions">
+              <button type="button" className="co-btn co-btn-sm" onClick={askAgentToUpdate}>
+                Ask agent to update
+              </button>
+            </div>
+          ) : null}
+          {askNote ? <p className="co-conn-error" role="status">{askNote}</p> : null}
         </div>
       </div>
     )
@@ -343,8 +365,41 @@ export function ConnectionCard({ conn, token, onChanged }) {
   }
 
   // Disconnected — the connect flow. Device flow when the server offers it,
-  // classic-PAT fallback always.
+  // classic-PAT fallback always. When the device flow IS available the PAT form
+  // is collapsed behind an "Advanced" disclosure so the default view is one tap;
+  // when it is the only path, the form stays open as before.
   const deviceFlowAvailable = !!conn?.deviceFlowAvailable
+  const patForm = (
+    <form className="co-conn-pat" onSubmit={submitPat}>
+      <p className="co-conn-hint">
+        Paste a <strong>classic</strong> personal access token with the{' '}
+        <code>public_repo</code> scope (
+        <a href={TOKEN_CREATE_URL} target="_blank" rel="noopener noreferrer">
+          create one
+        </a>
+        ).
+      </p>
+      <div className="co-conn-form">
+        <input
+          className="co-conn-input"
+          type="password"
+          value={pat}
+          onChange={(e) => setPat(e.target.value)}
+          placeholder="ghp_…"
+          autoComplete="off"
+          aria-label="GitHub personal access token"
+        />
+        <button
+          className="co-btn co-btn-primary co-btn-block"
+          type="submit"
+          disabled={patSubmitting || !pat.trim()}
+        >
+          {patSubmitting ? 'Connecting…' : 'Connect with token'}
+        </button>
+      </div>
+      {patError && <p className="co-conn-error">{patError}</p>}
+    </form>
+  )
   return (
     <div className="co-conn is-column">
       <div className="co-conn-row">
@@ -395,37 +450,21 @@ export function ConnectionCard({ conn, token, onChanged }) {
         </div>
       )}
 
-      {deviceFlowAvailable && <div className="co-conn-divider">or</div>}
-
-      <form className="co-conn-pat" onSubmit={submitPat}>
-        <p className="co-conn-hint">
-          Paste a <strong>classic</strong> personal access token with the{' '}
-          <code>public_repo</code> scope (
-          <a href={TOKEN_CREATE_URL} target="_blank" rel="noopener noreferrer">
-            create one
-          </a>
-          ).
-        </p>
-        <div className="co-conn-form">
-          <input
-            className="co-conn-input"
-            type="password"
-            value={pat}
-            onChange={(e) => setPat(e.target.value)}
-            placeholder="ghp_…"
-            autoComplete="off"
-            aria-label="GitHub personal access token"
-          />
+      {deviceFlowAvailable ? (
+        <div className="co-conn-advanced">
           <button
-            className="co-btn co-btn-primary co-btn-block"
-            type="submit"
-            disabled={patSubmitting || !pat.trim()}
+            type="button"
+            className="co-conn-advanced-toggle"
+            aria-expanded={patOpen}
+            onClick={() => setPatOpen((open) => !open)}
           >
-            {patSubmitting ? 'Connecting…' : 'Connect with token'}
+            Advanced: use a token instead
           </button>
+          {patOpen ? patForm : null}
         </div>
-        {patError && <p className="co-conn-error">{patError}</p>}
-      </form>
+      ) : (
+        patForm
+      )}
     </div>
   )
 }

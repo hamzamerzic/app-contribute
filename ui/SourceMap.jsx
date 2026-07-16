@@ -418,6 +418,7 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) 
       <div className="co-sources-head">
         <div>
           <h2 id="co-sources-title">Where changes live</h2>
+          <p className="co-sources-intro">A developer's view of the repositories behind your apps.</p>
           <p>See which projects differ here and which changes are being shared.</p>
         </div>
         <div className="co-sources-fresh">

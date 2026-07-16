@@ -1,5 +1,13 @@
 import React, { useEffect, useId, useRef, useState } from 'react'
-import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
+import {
+  ATTENTION_DETAIL,
+  ATTENTION_HEADLINE,
+  STATUS_LABELS,
+  TYPE_LABELS,
+  problemHeadline,
+  statusNarration,
+  timeAgo,
+} from '../domain.js'
 import { parseDiffStat } from '../diff.js'
 import { FileDiffList } from './FileDiffList.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
@@ -89,6 +97,12 @@ function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
   const message = blocked
     ? (reviewState.message || 'The staged source no longer matches this review.')
     : rec.last_submit_error
+  // The backend tags each blocking problem with a stable `code`; lead with its
+  // human headline and tuck the raw Git message behind Details. A persisted
+  // last_submit_error carries no fresh code, so name it as one. An unmapped code
+  // returns '' and the raw message becomes the headline (lenient fallback).
+  const code = reviewState?.code || (rec.last_submit_error ? 'previous_submit_failure' : '')
+  const headline = problemHeadline(code)
 
   function askAgent() {
     if (typeof onFeedback !== 'function') return
@@ -99,9 +113,16 @@ function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
 
   return (
     <div className="co-alert" role="status">
-      <strong>{blocked ? 'Fresh review needed' : 'Could not send'}</strong>
-      <p className="co-alert-text">{message}</p>
-      {blocked && typeof onFeedback === 'function' ? (
+      <strong>{headline || (blocked ? 'Fresh review needed' : 'Could not send')}</strong>
+      {headline ? (
+        <details className="co-alert-details">
+          <summary>Details</summary>
+          <p className="co-alert-text">{message}</p>
+        </details>
+      ) : (
+        <p className="co-alert-text">{message}</p>
+      )}
+      {typeof onFeedback === 'function' ? (
         <button type="button" className="co-btn co-btn-sm" onClick={askAgent}>
           Ask agent to refresh
         </button>
@@ -126,11 +147,11 @@ function isInteractiveTarget(target) {
 }
 
 function attentionTitle(attention) {
-  return attention?.title || 'Needs attention'
+  return attention?.title || ATTENTION_HEADLINE
 }
 
 function attentionMessage(attention) {
-  return attention?.message || 'There is new activity on GitHub.'
+  return attention?.message || ATTENTION_DETAIL
 }
 
 function attentionDraft(rec) {
@@ -214,6 +235,12 @@ function ReviewPlan({ rec, loadDiff }) {
           <MarkdownView markdown={plan.body_draft} />
         </section>
       ) : null}
+      {/* What the source-only allowlist already guarantees, said plainly right
+          above the diff. Do not widen this claim beyond that allowlist. */}
+      <p className="co-review-assurance">
+        Contains only code and docs your agent changed — no personal data,
+        chats, or memory.
+      </p>
       <FileDiffList rec={rec} loadDiff={loadDiff} />
       {typeof plan.target_url === 'string' &&
         plan.target_url.startsWith('https://github.com/') && (
@@ -468,6 +495,10 @@ export function ContributionCard({
   const status = rec.status || 'prepared'
   const blocked = status === 'prepared' && reviewState?.state === 'needs_refresh'
   const statusLabel = blocked ? 'Needs refresh' : (STATUS_LABELS[status] || status)
+  // The one plain-language line under the chip. A blocked card leads with its
+  // SubmitErrorAlert instead, and an attention record with its callout, so both
+  // suppress the calm lifecycle narration here.
+  const narration = blocked ? '' : statusNarration(rec)
   const typeLabel = TYPE_LABELS[rec.type] || rec.type || 'Contribution'
   const when = timeAgo(rec.updated_at || rec.created_at)
   const [expanded, setExpanded] = useState(false)
@@ -533,6 +564,7 @@ export function ContributionCard({
         )}
         <span className={`co-chip is-${blocked ? 'needs-refresh' : status}`}>{statusLabel}</span>
       </div>
+      {narration ? <p className="co-card-status">{narration}</p> : null}
       {!hasPlan && rec.summary ? <p className="co-card-summary">{rec.summary}</p> : null}
       {/* Non-plan cards keep the generic type · repo#number · time line; a
           prepared plan card carries its own repo · branch · time line inside
