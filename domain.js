@@ -90,10 +90,12 @@ export const PROBLEM_HEADLINES = {
   parent_merged: 'An earlier change in this chain was merged — ask your agent to refresh this one',
   invalid_stack: 'This chain of changes is out of order — your agent can restage it',
   missing_checkout: 'The prepared files for this change are missing — your agent can restage it',
+  invalid_checkout: 'The prepared files can no longer be verified — your agent can restage it',
   missing_coauthor: 'The prepared commit is missing its agent marker — your agent can restage it',
   missing_diff: 'The reviewed change is incomplete — your agent can restage it',
   missing_diff_hash: 'The reviewed change is incomplete — your agent can restage it',
   invalid_plan: 'The prepared review is incomplete — your agent can restage it',
+  review_unavailable: 'This review could not be verified — ask your agent to check it',
 }
 
 export function problemHeadline(code) {
