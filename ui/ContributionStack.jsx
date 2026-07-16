@@ -36,6 +36,7 @@ export function ContributionStack({
 }) {
   const [confirming, setConfirming] = useState(false)
   const [sending, setSending] = useState(false)
+  const [sendElapsed, setSendElapsed] = useState(0)
   const [note, setNote] = useState('')
   const progress = stackProgress(unit)
   const ready = unit.records.filter((rec) => rec.status === 'prepared')
@@ -53,6 +54,18 @@ export function ContributionStack({
   useEffect(() => {
     if (!canSend && confirming) setConfirming(false)
   }, [canSend, confirming])
+
+  useEffect(() => {
+    if (!sending) {
+      setSendElapsed(0)
+      return undefined
+    }
+    const startedAt = Date.now()
+    const update = () => setSendElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    update()
+    const timer = window.setInterval(update, 1000)
+    return () => window.clearInterval(timer)
+  }, [sending])
 
   async function send() {
     if (!canSend) return
@@ -167,12 +180,18 @@ export function ContributionStack({
               {sending ? 'Sending…' : 'Send for review'}
             </button>
           </div>
+          {sending ? (
+            <p className="co-review-note" role="status" aria-live="polite">
+              Publishing the reviewed pull requests in order
+              {sendElapsed >= 5 ? ` · ${sendElapsed}s elapsed` : '…'}
+            </p>
+          ) : null}
         </div>
       ) : (
         <div className="co-stack-actions">
           <button
             type="button"
-            className="co-icon-btn is-primary"
+            className="co-icon-btn co-send-btn is-primary"
             disabled={!canSend}
             aria-label={blocked > 0 ? 'Fresh review required before sending' : 'Send related changes for review'}
             title={blocked > 0 ? 'Fresh review required' : 'Send for review'}
@@ -184,6 +203,7 @@ export function ContributionStack({
             onClick={() => setConfirming(true)}
           >
             <Icon name="send" />
+            <span>Send</span>
           </button>
           <button
             type="button"
