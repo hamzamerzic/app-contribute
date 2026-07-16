@@ -10,17 +10,23 @@ function repoKey(value) {
 }
 
 export function activeContribution(rec) {
-  return !!rec && ACTIVE.has(rec.status)
+  const isPullRequest = rec?.type === 'pr' || rec?.plan?.action === 'pr'
+  return !!rec && isPullRequest && ACTIVE.has(rec.status)
 }
 
 export function recordBranch(rec) {
-  return rec?.branch || rec?.plan?.branch || ''
+  return rec?.plan?.branch || rec?.branch || ''
 }
 
 export function attachSourceProjects(snapshot, records) {
   const base = []
   if (snapshot?.platform) base.push(snapshot.platform)
-  if (Array.isArray(snapshot?.apps)) base.push(...snapshot.apps)
+  if (Array.isArray(snapshot?.apps)) {
+    // The map is about real Git relationships. Local-only apps have no origin,
+    // fork, or branch topology to explain, so including them as "Not tracked"
+    // adds noise and makes the repository count misleading.
+    base.push(...snapshot.apps.filter((project) => repoKey(project?.canonical_repo)))
+  }
   const active = (records || []).filter(activeContribution)
   const byRepo = new Map()
   for (const rec of active) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { connectPoll, connectStart, connectToken, disconnect } from '../api.js'
+import { Icon } from './Icons.jsx'
 
 // The GitHub connection card — the FULL connect flow, owned by this app (the
 // platform's connect endpoints accept this app's github_access token). Four
@@ -25,6 +26,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
   // Device-flow machine: idle | starting | pending | complete. PAT submission
   // is independent state so the token form works even while a flow is pending.
   const [flow, setFlow] = useState('idle')
+  const [flowPurpose, setFlowPurpose] = useState('standard')
   const [userCode, setUserCode] = useState('')
   const [verificationUri, setVerificationUri] = useState('')
   const [deviceError, setDeviceError] = useState('')
@@ -36,6 +38,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
   const [disconnectConfirm, setDisconnectConfirm] = useState(false)
   const [disconnecting, setDisconnecting] = useState(false)
   const [disconnectError, setDisconnectError] = useState('')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const pollRef = useRef(null)
   const pollGenRef = useRef(0)
 
@@ -70,14 +73,18 @@ export function ConnectionCard({ conn, token, onChanged }) {
     onChanged?.()
   }, [onChanged])
 
-  const startDeviceFlow = useCallback(async () => {
+  const startDeviceFlow = useCallback(async (workflow = false) => {
     setDeviceError('')
+    setFlowPurpose(workflow ? 'workflow' : 'standard')
     setFlow('starting')
-    window.mobius?.signal?.('github_connect_started', { method: 'device' })
+    window.mobius?.signal?.('github_connect_started', {
+      method: 'device',
+      workflow,
+    })
     pollGenRef.current += 1
     const myGen = pollGenRef.current
     try {
-      const res = await connectStart(token)
+      const res = await connectStart(token, { workflow })
       if (myGen !== pollGenRef.current) return
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
@@ -226,49 +233,111 @@ export function ConnectionCard({ conn, token, onChanged }) {
   const isConnected = flow === 'complete' || state === 'connected'
   if (isConnected) {
     const login = connectedLogin || conn?.login || 'your account'
+    const workflowEnabled = conn?.scopes?.includes('workflow')
+    const workflowFlow = flowPurpose === 'workflow'
     return (
-      <div className="co-conn">
-        <span className="co-conn-dot is-ok" aria-hidden="true" />
-        <div className="co-conn-body">
-          <p className="co-conn-title">
-            {justConnected ? 'GitHub connected 🎉' : 'GitHub connected'}
-          </p>
-          <p className="co-conn-text">
-            Connected as <strong>{login}</strong>. Your agent can prepare PRs;
-            sending one here publishes the reviewed PR on GitHub.
-          </p>
-          {disconnectError && <p className="co-conn-error">{disconnectError}</p>}
-          <div className="co-conn-actions">
-            {disconnectConfirm ? (
-              <>
-                <button
-                  type="button"
-                  className="co-btn co-btn-sm"
-                  onClick={() => setDisconnectConfirm(false)}
-                  disabled={disconnecting}
-                >
-                  Cancel
-                </button>
+      <div className={'co-conn is-connected' + (settingsOpen ? ' is-open' : '')}>
+        <div className="co-conn-summary">
+          <span className="co-conn-dot is-ok" aria-hidden="true" />
+          <div className="co-conn-body">
+            <p className="co-conn-title">
+              {justConnected ? 'GitHub connected' : `GitHub · ${login}`}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="co-icon-btn co-access-btn"
+            aria-expanded={settingsOpen}
+            aria-label={settingsOpen ? 'Close GitHub settings' : 'GitHub settings'}
+            title={settingsOpen ? 'Close settings' : 'GitHub settings'}
+            onClick={() => setSettingsOpen((open) => !open)}
+          >
+            <Icon name="settings" />
+          </button>
+        </div>
+
+        {settingsOpen && (
+          <div className="co-conn-settings">
+            <p className="co-conn-hint">
+              Reviewed PRs publish through <strong>{login}</strong>. Public actions
+              still require your explicit approval.
+            </p>
+            {workflowEnabled ? (
+              <p className="co-conn-hint">
+                Workflow access is enabled for reviewed workflow changes and
+                safe fast-forwards of stale forks.
+              </p>
+            ) : (
+              <div className="co-conn-device">
+                <p className="co-conn-hint">
+                  Workflow access is optional. It is only needed for reviewed
+                  workflow changes or to safely update a stale fork.
+                </p>
+                {workflowFlow && flow === 'pending' ? (
+                  <>
+                    <p className="co-conn-hint">
+                      Open{' '}
+                      <a href={verificationUri} target="_blank" rel="noopener noreferrer">
+                        {verificationUri || 'github.com/login/device'}
+                      </a>
+                      {' '}and enter this code:
+                    </p>
+                    <div className="co-conn-code" aria-label="GitHub device code">
+                      {userCode}
+                    </div>
+                    <div className="co-conn-wait">
+                      <p className="co-conn-waiting">Waiting for GitHub…</p>
+                      <button type="button" className="co-btn co-btn-sm" onClick={cancelPending}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="co-btn co-btn-sm"
+                    onClick={() => startDeviceFlow(true)}
+                    disabled={workflowFlow && flow === 'starting'}
+                  >
+                    {workflowFlow && flow === 'starting' ? 'Starting…' : 'Enable workflow access'}
+                  </button>
+                )}
+                {workflowFlow && deviceError && <p className="co-conn-error">{deviceError}</p>}
+              </div>
+            )}
+            {disconnectError && <p className="co-conn-error">{disconnectError}</p>}
+            <div className="co-conn-actions">
+              {disconnectConfirm ? (
+                <>
+                  <button
+                    type="button"
+                    className="co-btn co-btn-sm"
+                    onClick={() => setDisconnectConfirm(false)}
+                    disabled={disconnecting}
+                  >
+                    Keep connected
+                  </button>
+                  <button
+                    type="button"
+                    className="co-btn co-btn-sm co-btn-danger"
+                    onClick={doDisconnect}
+                    disabled={disconnecting}
+                  >
+                    {disconnecting ? 'Disconnecting…' : 'Disconnect'}
+                  </button>
+                </>
+              ) : (
                 <button
                   type="button"
                   className="co-btn co-btn-sm co-btn-danger"
-                  onClick={doDisconnect}
-                  disabled={disconnecting}
+                  onClick={() => { setDisconnectError(''); setDisconnectConfirm(true) }}
                 >
-                  {disconnecting ? 'Disconnecting…' : 'Disconnect now'}
+                  Disconnect GitHub
                 </button>
-              </>
-            ) : (
-              <button
-                type="button"
-                className="co-btn co-btn-sm"
-                onClick={() => { setDisconnectError(''); setDisconnectConfirm(true) }}
-              >
-                Disconnect
-              </button>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     )
   }
@@ -316,7 +385,7 @@ export function ConnectionCard({ conn, token, onChanged }) {
             <button
               type="button"
               className="co-btn co-btn-primary co-btn-block"
-              onClick={startDeviceFlow}
+              onClick={() => startDeviceFlow(false)}
               disabled={flow === 'starting'}
             >
               {flow === 'starting' ? 'Starting…' : 'Connect with GitHub'}

@@ -76,14 +76,24 @@ export function preparedContributionUnits(ready, allRecords) {
   const stackRecords = (allRecords || []).filter((rec) => {
     const meta = stackMeta(rec)
     return meta && readyStackIds.has(meta.id) &&
-      ['prepared', 'open', 'merged'].includes(rec.status)
+      ['prepared', 'draft', 'open', 'merged'].includes(rec.status)
   })
   const stackUnits = groupContributionUnits(stackRecords)
     .filter((unit) => unit.type === 'stack')
+  const invalidStackUnits = (ready || [])
+    .filter((rec) => rec?.plan?.stack && !stackMeta(rec))
+    .map((rec) => ({
+      type: 'stack',
+      id: `invalid:${rec.id}`,
+      name: [rec.plan.stack.name, rec.plan.stack.id]
+        .find((value) => typeof value === 'string' && value.trim()) || 'Invalid PR chain',
+      total: Number(rec.plan.stack.total) || 2,
+      records: [rec],
+    }))
   const standalone = (ready || [])
-    .filter((rec) => !stackMeta(rec))
+    .filter((rec) => !rec?.plan?.stack)
     .map((rec) => ({ type: 'record', id: rec.id, record: rec, records: [rec] }))
-  return [...stackUnits, ...standalone].sort((a, b) => {
+  return [...stackUnits, ...invalidStackUnits, ...standalone].sort((a, b) => {
     const aRec = a.records.find((rec) => rec.status === 'prepared') || a.records[0]
     const bRec = b.records.find((rec) => rec.status === 'prepared') || b.records[0]
     return String(bRec?.updated_at || bRec?.created_at || '').localeCompare(
@@ -99,4 +109,75 @@ export function stackProgress(unit) {
     merged: records.filter((rec) => rec.status === 'merged').length,
     total: unit?.total || records.length,
   }
+}
+
+function recordBranch(rec) {
+  return rec?.plan?.branch || rec?.branch || ''
+}
+
+// Client-side review guard. The platform remains authoritative, but catching
+// an incomplete or stale chain here avoids presenting a publish button that is
+// guaranteed to fail after confirmation.
+export function stackReadiness(unit) {
+  const records = sortStackRecords(unit?.records || [])
+  const total = Number(unit?.total || records.length)
+  const ready = records.filter((rec) => rec.status === 'prepared')
+  const fail = (code, message) => ({ ok: false, code, message, ready })
+  if (!Number.isInteger(total) || total < 2 || records.length !== total) {
+    return fail(
+      'incomplete',
+      `This chain is incomplete: ${records.length} of ${total || '?'} layers are available.`,
+    )
+  }
+  const metas = records.map(stackMeta)
+  if (metas.some((meta) => !meta)) {
+    return fail('invalid', 'This chain has invalid layer metadata.')
+  }
+  if (metas.some((meta, index) => (
+    meta.id !== metas[0].id || meta.total !== total || meta.position !== index + 1
+  ))) {
+    return fail('invalid', 'This chain has duplicate, missing, or mismatched layer positions.')
+  }
+  const repo = records[0]?.plan?.repo || records[0]?.repo || ''
+  for (let index = 0; index < records.length; index += 1) {
+    const rec = records[index]
+    const meta = metas[index]
+    const recRepo = rec?.plan?.repo || rec?.repo || ''
+    if (rec.type !== 'pr' || rec?.plan?.action !== 'pr' || recRepo !== repo) {
+      return fail('invalid', 'Every layer must be a pull request for the same repository.')
+    }
+    if (!['prepared', 'draft', 'open', 'merged'].includes(rec.status)) {
+      return fail('invalid', 'One layer is not in a publishable stack state.')
+    }
+    if (!recordBranch(rec).startsWith(`stack/${meta.id}/`)) {
+      return fail('invalid', 'A layer branch does not belong to this chain.')
+    }
+    if (index === 0) {
+      if (meta.parentRecordId) {
+        return fail('invalid', 'The first layer points at an unexpected parent.')
+      }
+      continue
+    }
+    const previous = records[index - 1]
+    if (
+      meta.parentRecordId !== previous.id ||
+      meta.baseBranch !== recordBranch(previous) ||
+      (
+        rec.status === 'prepared' &&
+        String(rec?.plan?.base_sha || '') !== String(previous?.plan?.head_sha || '')
+      )
+    ) {
+      return fail('invalid', 'A layer no longer matches its reviewed parent.')
+    }
+    if (rec.status === 'prepared' && previous.status === 'merged') {
+      return fail(
+        'refresh',
+        'A parent PR has merged. Refresh the remaining layers on the repository’s main branch before publishing.',
+      )
+    }
+  }
+  if (ready.length === 0) {
+    return fail('settled', 'Every layer in this chain is already public or merged.')
+  }
+  return { ok: true, code: 'ready', message: '', ready }
 }

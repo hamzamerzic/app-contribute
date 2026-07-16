@@ -40,6 +40,38 @@ export const STATUS_LABELS = {
   abandoned: 'Dropped',
 }
 
+// Reconcile server/storage results into the current ledger without losing the
+// enumerated storage path needed by later CAS writes. Keeping this pure makes
+// the app's render state, callback mirror, and offline cache share one update.
+export function mergeRecordUpdates(records, updates) {
+  const list = Array.isArray(updates) ? updates : [updates]
+  const byId = new Map(list.filter(Boolean).map((rec) => [rec.id, rec]))
+  if (byId.size === 0) return records
+  return records.map((rec) => {
+    const update = byId.get(rec.id)
+    return update ? { ...update, path: rec.path } : rec
+  })
+}
+
+// A directory rescan is authoritative for which records exist, but its async
+// GitHub overlay can finish after a submit/dismiss response has already moved
+// one of those records forward in the UI. Preserve the newer in-memory row by
+// updated_at so a slow refresh cannot resurrect Ready or Submitting after the
+// action has completed. Equal timestamps keep the current row, retaining a
+// same-session live GitHub overlay when the stored lifecycle row is unchanged.
+export function reconcileLedgerSnapshot(current, snapshot) {
+  const currentById = new Map(
+    (current || []).filter(Boolean).map((rec) => [rec.id, rec]),
+  )
+  return (snapshot || []).map((incoming) => {
+    const present = currentById.get(incoming.id)
+    if (!present) return incoming
+    const presentTime = Date.parse(present.updated_at || present.created_at || '') || 0
+    const incomingTime = Date.parse(incoming.updated_at || incoming.created_at || '') || 0
+    return presentTime >= incomingTime ? present : incoming
+  })
+}
+
 // Feed groups: Ready to propose (waiting on the owner's go-ahead), Open
 // (live on GitHub, or in flight to it — `submitting` sits here because the
 // platform has claimed it and it is seconds from public), History (settled:

@@ -11,19 +11,36 @@ function authHeaders(token) {
   return { Authorization: 'Bearer ' + token }
 }
 
+// Background reads must never hold the interface in "checking" forever when
+// the platform restarts mid-request. Public mutation calls deliberately do NOT
+// use this helper: aborting a Send client-side could hide a successful upstream
+// action and invite an unsafe retry.
+async function fetchRead(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // Resolves the connection card's state and carries the fields the connect
 // flow needs (device_flow_available, login). 404 means the platform predates
 // the GitHub surface entirely — a distinct, actionable message.
 export async function fetchGithubStatus(token) {
   try {
-    const r = await fetch('/api/github/status', { headers: authHeaders(token) })
+    const r = await fetchRead('/api/github/status', { headers: authHeaders(token) })
     if (r.status === 404) return { state: 'unsupported' }
     if (!r.ok) return { state: 'unknown' }
     const s = await r.json()
     return {
       state: s.connected ? 'connected' : 'disconnected',
       login: s.login || '',
+      scopes: Array.isArray(s.scopes) ? s.scopes : [],
       deviceFlowAvailable: !!s.device_flow_available,
+      classicTokenUrl: s.classic_token_url || '',
+      classicWorkflowTokenUrl: s.classic_workflow_token_url || '',
     }
   } catch {
     // Network failure (offline, backend restarting) — not a platform verdict.
@@ -32,14 +49,38 @@ export async function fetchGithubStatus(token) {
 }
 
 // Fetch-free local Git metadata for the Sources view. The endpoint is narrow:
-// refs, ancestry/diff magnitudes, working-tree counts, and capped path names —
+// refs, ancestry/diff magnitudes, working-tree counts, and bounded path names —
 // never source contents or absolute paths. A failure leaves the contribution
 // feed usable and lets the Sources view offer an explicit retry.
 export async function fetchSourceStatus(token) {
   try {
-    const r = await fetch('/api/github/source-status', {
+    const r = await fetchRead('/api/github/source-status', {
       headers: authHeaders(token),
     })
+    if (!r.ok) {
+      return {
+        ok: false,
+        unsupported: r.status === 404,
+        status: r.status,
+      }
+    }
+    const body = await r.json()
+    return { ok: true, data: body }
+  } catch {
+    return { ok: false, offline: true, status: 0 }
+  }
+}
+
+// Read-only local validation for every prepared review. This catches branch,
+// worktree, and stored-diff drift before the owner reaches the public Send
+// action. Older platforms return 404; the app keeps the feed usable and falls
+// back to any persisted submit error already present on the record.
+export async function fetchReviewStatus(token, appId) {
+  try {
+    const r = await fetchRead(
+      '/api/github/contributions/' + encodeURIComponent(appId) + '/review-status',
+      { headers: authHeaders(token) },
+    )
     if (!r.ok) {
       return {
         ok: false,
@@ -59,7 +100,7 @@ export async function fetchSourceStatus(token) {
 // and GitHub returns null nodes (not errors) for anything inaccessible.
 export async function fetchLiveStates(token, query) {
   try {
-    const r = await fetch('/api/github/graphql', {
+    const r = await fetchRead('/api/github/graphql', {
       method: 'POST',
       headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
       body: JSON.stringify({ query }),
@@ -78,10 +119,11 @@ export async function fetchLiveStates(token, query) {
 // an upstream call when a poll arrives before GitHub's interval allows one —
 // so the caller just ticks at the announced interval and never handles
 // slow_down itself.
-export function connectStart(token) {
+export function connectStart(token, { workflow = false } = {}) {
   return fetch('/api/github/connect/start', {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workflow }),
   })
 }
 
@@ -111,9 +153,9 @@ export function disconnect(token) {
 }
 
 // Send button path: the platform claims the prepared PR record, recomputes the
-// actual branch diff, safely fast-forwards a stale reusable fork, pushes the
-// branch, opens the PR on GitHub, and writes the URL back to the record. The
-// token stays server-side;
+// actual branch diff, adapts it to a strictly-behind reusable fork without
+// changing that fork's default branch, pushes the topic branch, opens the PR on
+// GitHub, and writes the URL back to the record. The token stays server-side;
 // this app receives only the updated ledger record or an actionable error plus
 // the rolled-back record when available.
 export async function submitContribution({ appId, token, rec }) {

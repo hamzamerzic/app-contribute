@@ -19,18 +19,20 @@ import { CSS } from './theme.js'
 import {
   applyLiveStates,
   buildRefreshQuery,
-  countStats,
   groupRecords,
+  mergeRecordUpdates,
+  reconcileLedgerSnapshot,
 } from './domain.js'
+import { indexReviewStatus } from './review.js'
 import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger, restoreAbandoned } from './storage.js'
 import {
   fetchGithubStatus,
   fetchLiveStates,
+  fetchReviewStatus,
   fetchSourceStatus,
   submitContribution,
   submitContributionStack,
 } from './api.js'
-import { StatTiles } from './ui/StatTiles.jsx'
 import { ConnectionCard } from './ui/ConnectionCard.jsx'
 import { Feed } from './ui/Feed.jsx'
 import { SourceMap } from './ui/SourceMap.jsx'
@@ -48,6 +50,8 @@ const MERGE_MARK = (
     <path d="M18 11.6c0 3.2-3 4.4-6 4.4" />
   </svg>
 )
+
+const CONTRIBUTION_VIEWS = ['contributions', 'sources']
 
 // The app's own icon, with a lettered fallback for installs whose icon route
 // 404s. Mirrors the App Store header pattern.
@@ -71,7 +75,7 @@ function Header({ appId, fromCache }) {
       </span>
       <div>
         <h1 className="co-title">Contribute</h1>
-        <span className="co-subtitle">Review work and see where it sits upstream</span>
+        <span className="co-subtitle">Review and share Möbius improvements</span>
         {fromCache && (
           <span className="co-offline-note">Offline — showing your last synced feed.</span>
         )}
@@ -103,17 +107,42 @@ export default function ContributeApp({ appId, token }) {
   const [conn, setConn] = useState({ state: 'unknown' })
   const [loading, setLoading] = useState(true)
   const [view, setViewState] = useState(() => {
-    try { return sessionStorage.getItem('contribute-view-v2') || 'contributions' }
+    try {
+      const saved = sessionStorage.getItem('contribute-view-v2')
+      return CONTRIBUTION_VIEWS.includes(saved) ? saved : 'contributions'
+    }
     catch { return 'contributions' }
   })
   const [sourceSnapshot, setSourceSnapshot] = useState(null)
   const [sourceLoading, setSourceLoading] = useState(true)
   const [sourceError, setSourceError] = useState('')
+  const [reviewStatus, setReviewStatus] = useState({
+    state: 'loading', byId: {}, checkedAt: '',
+  })
   const pageRef = useRef(null)
+  const tabRefs = useRef({})
   // Latest records for callbacks (the connect-flow refresh) that must not take
   // a `records` dependency and re-bind on every ledger change.
   const recordsRef = useRef(records)
   useEffect(() => { recordsRef.current = records }, [records])
+  const connRef = useRef(conn)
+  useEffect(() => { connRef.current = conn }, [conn])
+  const rescanRunningRef = useRef(false)
+
+  // Every local ledger result must update the render, the callback mirror, and
+  // the offline cache together. Keeping that write in one place prevents a
+  // dismissed/restored card from reappearing when an offline mount reads a
+  // stale cache before the next visibility rescan.
+  const replaceFeed = useCallback((next) => {
+    recordsRef.current = next
+    setRecords(next)
+    cacheFeed(next)
+    return next
+  }, [])
+
+  const applyRecordUpdates = useCallback((updates) => (
+    replaceFeed(mergeRecordUpdates(recordsRef.current, updates))
+  ), [replaceFeed])
 
   // Best-effort live refresh of the open PR/issue records in ONE batched
   // GraphQL round-trip. Returns the refreshed array — a NEW array only when
@@ -135,10 +164,26 @@ export default function ContributeApp({ appId, token }) {
   const runLiveRefresh = useCallback(async (recs) => {
     const next = await fetchRefreshed(recs)
     if (next !== recs) {
-      setRecords(next)
-      cacheFeed(next)
+      replaceFeed(reconcileLedgerSnapshot(recordsRef.current, next))
     }
-  }, [fetchRefreshed])
+    return next
+  }, [fetchRefreshed, replaceFeed])
+
+  const refreshReviewStatus = useCallback(async () => {
+    const outcome = await fetchReviewStatus(token, appId)
+    if (outcome.ok) {
+      const indexed = indexReviewStatus(outcome.data)
+      setReviewStatus(indexed)
+      return indexed
+    }
+    const next = {
+      state: outcome.unsupported ? 'unsupported' : 'unavailable',
+      byId: {},
+      checkedAt: '',
+    }
+    setReviewStatus(next)
+    return next
+  }, [token, appId])
 
   // Local Sources refresh: fetch-free and safe to repeat after an agent edit.
   // A 404 specifically means this app source arrived before the companion
@@ -159,12 +204,14 @@ export default function ContributeApp({ appId, token }) {
   }, [token])
 
   useEffect(() => { refreshSources() }, [refreshSources])
+  useEffect(() => { refreshReviewStatus() }, [refreshReviewStatus])
 
   // Re-read connection status after an in-app connect/disconnect, and — when we
   // land connected and have a real (non-cached) ledger — re-run the live
   // refresh now that GitHub is reachable. Passed to ConnectionCard as onChanged.
   const refreshConnection = useCallback(async () => {
     const status = await fetchGithubStatus(token)
+    connRef.current = status
     setConn(status)
     if (status.state === 'connected' && !fromCache) {
       runLiveRefresh(recordsRef.current)
@@ -184,6 +231,7 @@ export default function ContributeApp({ appId, token }) {
       ])
       if (cancelled) return
       const recs = ledger.records
+      recordsRef.current = recs
       setRecords(recs)
       setFromCache(ledger.fromCache)
       setConn(status)
@@ -196,6 +244,7 @@ export default function ContributeApp({ appId, token }) {
         const next = await fetchRefreshed(recs)
         if (cancelled) return
         if (next !== recs) {
+          recordsRef.current = next
           setRecords(next)
           toCache = next
         }
@@ -213,42 +262,63 @@ export default function ContributeApp({ appId, token }) {
     return () => { cancelled = true }
   }, [token, fetchRefreshed])
 
-  // Rescan the ledger when the partner comes back to the app — the app's only
-  // liveness mechanism. A submit can flip a record (claim → submitting →
-  // draft/open) while the app is hidden, and feedback can move focus into a
-  // chat. The return visit is the moment to catch records the agent added or
-  // the platform submitted, and Dismiss already updates its own card locally.
-  // Fresh (non-cache) results replace the feed and re-run the live refresh so
-  // GitHub state rides along.
-  useEffect(() => {
-    let running = false
-    async function rescan() {
-      if (running || document.visibilityState !== 'visible') return
-      running = true
-      try {
-        const ledger = await loadLedger()
-        if (!ledger.fromCache) {
-          setRecords(ledger.records)
-          setFromCache(false)
-          cacheFeed(ledger.records)
-          runLiveRefresh(ledger.records)
+  // One refresh path serves return-to-app, explicit Refresh, and a quiet
+  // visible-only poll. Contribution files are a dynamic directory, so the
+  // storage runtime cannot subscribe to future filenames; this bounded local
+  // rescan is what keeps newly staged cards and post-submit states live while
+  // the iframe remains open.
+  const rescanContributions = useCallback(async () => {
+    if (rescanRunningRef.current || document.visibilityState !== 'visible') return
+    rescanRunningRef.current = true
+    try {
+      const [ledger] = await Promise.all([
+        loadLedger(),
+        refreshReviewStatus(),
+      ])
+      if (!ledger.fromCache) {
+        let next = ledger.records
+        if (connRef.current.state === 'connected') {
+          next = await fetchRefreshed(next)
         }
-      } finally {
-        running = false
+        replaceFeed(reconcileLedgerSnapshot(recordsRef.current, next))
+        setFromCache(false)
       }
+    } finally {
+      rescanRunningRef.current = false
     }
+  }, [fetchRefreshed, refreshReviewStatus, replaceFeed])
+
+  useEffect(() => {
+    const rescan = () => { rescanContributions() }
+    const interval = window.setInterval(rescan, 15000)
     document.addEventListener('visibilitychange', rescan)
     window.addEventListener('focus', rescan)
     return () => {
+      window.clearInterval(interval)
       document.removeEventListener('visibilitychange', rescan)
       window.removeEventListener('focus', rescan)
     }
-  }, [runLiveRefresh])
+  }, [rescanContributions])
 
   const setView = useCallback((next) => {
+    if (!CONTRIBUTION_VIEWS.includes(next)) next = 'contributions'
     setViewState(next)
     try { sessionStorage.setItem('contribute-view-v2', next) } catch { /* optional */ }
   }, [])
+
+  const onTabKeyDown = useCallback((event) => {
+    const current = CONTRIBUTION_VIEWS.indexOf(event.currentTarget.dataset.view)
+    let index = current
+    if (event.key === 'ArrowRight') index = (current + 1) % CONTRIBUTION_VIEWS.length
+    else if (event.key === 'ArrowLeft') index = (current - 1 + CONTRIBUTION_VIEWS.length) % CONTRIBUTION_VIEWS.length
+    else if (event.key === 'Home') index = 0
+    else if (event.key === 'End') index = CONTRIBUTION_VIEWS.length - 1
+    else return
+    event.preventDefault()
+    const next = CONTRIBUTION_VIEWS[index]
+    setView(next)
+    requestAnimationFrame(() => tabRefs.current[next]?.focus())
+  }, [setView])
 
   // Contributions is one long reading feed; Repository map owns two internal
   // panes on desktop. Reset the shared page scroller at the boundary so a deep
@@ -268,21 +338,21 @@ export default function ContributeApp({ appId, token }) {
     const outcome = await submitContribution({ appId, token, rec })
     if (outcome.ok) {
       const next = { ...outcome.ok, path: rec.path }
-      setRecords((prev) => prev.map((r) => (r.id === rec.id ? next : r)))
-      cacheFeed(recordsRef.current.map((r) => (r.id === rec.id ? next : r)))
+      applyRecordUpdates(next)
       window.mobius?.signal?.('contribution_submitted', {
         id: rec.id,
         url: outcome.url || next.url,
       })
+      refreshReviewStatus()
       return { ok: true, record: next, url: outcome.url || next.url }
     }
     if (outcome.record) {
       const next = { ...outcome.record, path: rec.path }
-      setRecords((prev) => prev.map((r) => (r.id === rec.id ? next : r)))
-      cacheFeed(recordsRef.current.map((r) => (r.id === rec.id ? next : r)))
+      applyRecordUpdates(next)
     }
+    refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR.' }
-  }, [appId, token])
+  }, [appId, token, applyRecordUpdates, refreshReviewStatus])
 
   // One explicit confirmation can publish an exact, already-reviewed chain.
   // The response may contain partial progress (for example, parent opened and
@@ -296,26 +366,19 @@ export default function ContributeApp({ appId, token }) {
     })
     const updates = outcome.ok || outcome.records || []
     if (updates.length > 0) {
-      const byId = new Map(updates.map((rec) => [rec.id, rec]))
-      setRecords((prev) => {
-        const next = prev.map((rec) => {
-          const update = byId.get(rec.id)
-          return update ? { ...update, path: rec.path } : rec
-        })
-        recordsRef.current = next
-        cacheFeed(next)
-        return next
-      })
+      applyRecordUpdates(updates)
     }
     if (outcome.ok) {
       window.mobius?.signal?.('contribution_stack_submitted', {
         stack_id: stackRecords[0]?.plan?.stack?.id || '',
         item_count: outcome.submitted?.length || 0,
       })
+      refreshReviewStatus()
       return { ok: true, submitted: outcome.submitted?.length || 0 }
     }
+    refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR stack.' }
-  }, [appId, token])
+  }, [appId, token, applyRecordUpdates, refreshReviewStatus])
 
   // Feedback = return to the chat that created the contribution, with a small
   // draft already pointing at the exact record. Attention follow-ups can pass
@@ -349,17 +412,17 @@ export default function ContributeApp({ appId, token }) {
       // Pure updater — the feed cache catches up on the next rescan/mount,
       // and the runtime mirror already holds the flipped record.
       const flipped = { ...outcome.ok, path: rec.path }
-      setRecords((prev) => prev.map((r) => (r.id === rec.id ? flipped : r)))
+      applyRecordUpdates(flipped)
+      refreshReviewStatus()
       window.mobius?.signal?.('contribution_dismissed', { id: rec.id })
     } else if (outcome.conflict !== undefined || outcome.gone) {
       const ledger = await loadLedger()
       if (!ledger.fromCache) {
-        setRecords(ledger.records)
-        cacheFeed(ledger.records)
+        replaceFeed(ledger.records)
       }
     }
     return outcome
-  }, [appId, token])
+  }, [appId, token, applyRecordUpdates, replaceFeed, refreshReviewStatus])
 
   // Undrop = CAS flip a dropped record back to `prepared`. Mirrors onDismiss:
   // on success it moves from History back to Ready for review in place; on a
@@ -368,26 +431,20 @@ export default function ContributeApp({ appId, token }) {
     const outcome = await restoreAbandoned({ appId, token, rec })
     if (outcome.ok) {
       const flipped = { ...outcome.ok, path: rec.path }
-      setRecords((prev) => prev.map((r) => (r.id === rec.id ? flipped : r)))
+      applyRecordUpdates(flipped)
+      refreshReviewStatus()
       window.mobius?.signal?.('contribution_restored', { id: rec.id })
     } else if (outcome.conflict !== undefined || outcome.gone) {
       const ledger = await loadLedger()
       if (!ledger.fromCache) {
-        setRecords(ledger.records)
-        cacheFeed(ledger.records)
+        replaceFeed(ledger.records)
       }
     }
     return outcome
-  }, [appId, token])
+  }, [appId, token, applyRecordUpdates, replaceFeed, refreshReviewStatus])
 
-  const stats = useMemo(() => countStats(records), [records])
   const groups = useMemo(() => groupRecords(records), [records])
   const isEmpty = records.length === 0
-  const sourceCount = sourceSnapshot
-    ? [sourceSnapshot.platform, ...(sourceSnapshot.apps || [])]
-        .filter((source) => source?.available).length
-    : null
-  const activeCount = stats.open + stats.ready
 
   return (
     <div className="co-root">
@@ -398,20 +455,32 @@ export default function ContributeApp({ appId, token }) {
           <button
             type="button"
             role="tab"
+            id="co-tab-contributions"
+            aria-controls="co-panel-contributions"
             aria-selected={view === 'contributions'}
+            tabIndex={view === 'contributions' ? 0 : -1}
+            data-view="contributions"
+            ref={(node) => { tabRefs.current.contributions = node }}
             className={view === 'contributions' ? 'is-active' : ''}
             onClick={() => setView('contributions')}
+            onKeyDown={onTabKeyDown}
           >
-            Contributions {activeCount > 0 && <span>{activeCount}</span>}
+            Contributions
           </button>
           <button
             type="button"
             role="tab"
+            id="co-tab-sources"
+            aria-controls="co-panel-sources"
             aria-selected={view === 'sources'}
+            tabIndex={view === 'sources' ? 0 : -1}
+            data-view="sources"
+            ref={(node) => { tabRefs.current.sources = node }}
             className={view === 'sources' ? 'is-active' : ''}
             onClick={() => setView('sources')}
+            onKeyDown={onTabKeyDown}
           >
-            Repository map {sourceCount !== null && <span>{sourceCount}</span>}
+            Projects
           </button>
         </nav>
 
@@ -423,11 +492,14 @@ export default function ContributeApp({ appId, token }) {
             loading={sourceLoading}
             error={sourceError}
             onRetry={refreshSources}
-            onShowContributions={() => setView('contributions')}
           />
         ) : (
-          <div className="co-contributions-view">
-            <StatTiles stats={stats} />
+          <div
+            id="co-panel-contributions"
+            className="co-contributions-view"
+            role="tabpanel"
+            aria-labelledby="co-tab-contributions"
+          >
             <ConnectionCard conn={conn} token={token} onChanged={refreshConnection} />
             {/* Hold the feed area blank until the first load resolves so an empty
                 ledger doesn't flash the sell-the-loop copy before data arrives. */}
@@ -435,6 +507,7 @@ export default function ContributeApp({ appId, token }) {
               <Feed
                 groups={groups}
                 records={records}
+                reviewStatus={reviewStatus}
                 onSend={onSend}
                 onSendStack={onSendStack}
                 onFeedback={onFeedback}

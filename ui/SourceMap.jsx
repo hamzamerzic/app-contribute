@@ -1,27 +1,96 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   attachSourceProjects,
   contributionRelationship,
   projectMatchesFilter,
   projectStatus,
   recordBranch,
-  sourceSummary,
 } from '../source-map.js'
 import { groupContributionUnits, stackMeta } from '../stack.js'
+import { Icon } from './Icons.jsx'
 
 const FILTERS = [
   ['all', 'All'],
-  ['attention', 'Action'],
-  ['changed', 'Changed'],
-  ['shared', 'PRs & forks'],
+  ['attention', 'Needs attention'],
+  ['changed', 'Changed here'],
+  ['shared', 'Shared'],
 ]
-
-function shortSha(value) {
-  return value ? String(value).slice(0, 7) : '—'
-}
 
 function countLabel(value, singular, plural = singular + 's') {
   return value + ' ' + (value === 1 ? singular : plural)
+}
+
+function localFlowStatus(project) {
+  if (project.kind === 'external') return { label: 'Not installed', tone: 'quiet' }
+  if (!project.available) return { label: 'Not tracked', tone: 'quiet' }
+  if (project.state === 'conflict') return { label: 'Update conflict', tone: 'danger' }
+  if (project.workingFiles > 0) return { label: 'Being edited', tone: 'warn' }
+  if ((project.originBehind > 0 && project.originAhead > 0) || project.state === 'diverged') {
+    return { label: 'Both changed', tone: 'warn' }
+  }
+  if (project.originBehind > 0 || project.state === 'incoming') {
+    return { label: 'Update available', tone: 'accent' }
+  }
+  if (project.different || project.state === 'customized') {
+    return { label: 'Changed here', tone: 'accent' }
+  }
+  if (project.adapted || project.state === 'adapted') {
+    return { label: 'Installed normally', tone: 'quiet' }
+  }
+  return { label: 'Up to date', tone: 'ok' }
+}
+
+function ProjectFlow({ project }) {
+  const status = localFlowStatus(project)
+  const contributions = project.contributions || []
+  const reviews = contributions.length
+  const ready = contributions.filter((rec) => rec.status === 'prepared').length
+  const open = reviews - ready
+  const reviewAttention = contributions.some((rec) => rec.needs_attention)
+  const chains = groupContributionUnits(contributions).filter((unit) => unit.type === 'stack').length
+  const sourceName = project.canonical_repo || 'Shared source'
+  const sourceRef = project.origin?.ref || project.base_ref || 'shared main'
+  const localBranch = project.branch || (project.detached ? 'detached' : 'main')
+  const localBits = [
+    localBranch,
+    project.originBehind > 0 ? `${project.originBehind} incoming` : '',
+    project.authoredFiles > 0 ? countLabel(project.authoredFiles, 'changed file') : '',
+    project.workingFiles > 0 ? countLabel(project.workingFiles, 'file being edited', 'files being edited') : '',
+    !project.authoredFiles && !project.workingFiles && project.managedFiles > 0 ? 'safe install adjustments only' : '',
+    !project.authoredFiles && !project.workingFiles && !project.managedFiles ? 'source matches' : '',
+  ].filter(Boolean)
+  const forks = project.forks?.length || 0
+  const reviewBits = [
+    ready ? `${ready} ready` : '',
+    open ? `${open} open` : '',
+    forks ? countLabel(forks, 'GitHub copy', 'GitHub copies') : '',
+    chains ? countLabel(chains, 'linked chain') : '',
+  ].filter(Boolean)
+  return (
+    <div
+      className="co-observe-map"
+      aria-label={`Shared source to your ${status.label.toLowerCase()} version to ${countLabel(reviews, 'review')}`}
+    >
+      <div className="co-observe-node is-source">
+        <span className="co-observe-icon" aria-hidden="true">◎</span>
+        <div><span>Shared source</span><strong>{sourceName}</strong><small>{sourceRef} · latest checked</small></div>
+      </div>
+      <div className="co-observe-edge" aria-hidden="true"><span /><i>→</i></div>
+      <div className={'co-observe-node is-local tone-' + status.tone}>
+        <span className="co-observe-icon" aria-hidden="true">●</span>
+        <div><span>This Möbius</span><strong>{status.label}</strong><small>{localBits.join(' · ')}</small></div>
+      </div>
+      <div className="co-observe-branch" aria-hidden="true"><span /><i>↓</i><small>shared from here</small></div>
+      <div className={'co-observe-node is-reviews' + (reviews ? ' has-reviews' : '') + (reviewAttention ? ' has-attention' : '')}>
+        <span className="co-observe-icon" aria-hidden="true">⑂</span>
+        <div>
+          <span>Shared reviews</span>
+          <strong>{reviews ? `${reviews}${reviewAttention ? ' · needs attention' : ''}` : 'Nothing shared'}</strong>
+          <small>{reviewBits.join(' · ') || 'No active reviews'}</small>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ProjectGlyph({ project }) {
@@ -42,117 +111,22 @@ function ProjectGlyph({ project }) {
   return <span className="co-source-glyph" aria-hidden="true">{letter}</span>
 }
 
-function RepoNode({ kind, eyebrow, title, refName, sha, note, badges = [] }) {
-  return (
-    <div className={'co-map-node is-' + kind}>
-      <span className="co-map-node-icon" aria-hidden="true">
-        {kind === 'origin' ? '◎' : kind === 'fork' ? '⑂' : '●'}
-      </span>
-      <div className="co-map-node-copy">
-        <span className="co-map-node-eyebrow">{eyebrow}</span>
-        <strong title={title}>{title}</strong>
-        <code>{refName || 'branch unknown'} · {shortSha(sha)}</code>
-        {note && <small>{note}</small>}
-      </div>
-      {badges.length > 0 && (
-        <div className="co-map-node-badges">
-          {badges.map((badge) => <span key={badge}>{badge}</span>)}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function ForkState({ fork }) {
-  if (fork.sync === 'diverged') return <span className="is-danger">Fork main diverged</span>
-  if (fork.sync === 'strictly-behind') return <span>{fork.branch || 'main'} is behind origin</span>
-  if (fork.sync === 'current') return <span>Default branch matches origin</span>
-  if (fork.sync === 'contains-upstream') return <span>Contains the reviewed origin</span>
-  if (fork.ahead != null && fork.behind != null) {
-    return <span>{fork.behind} behind · {fork.ahead} ahead of origin</span>
-  }
-  return <span>Fork recorded; default branch was not fetched here</span>
-}
-
-function RepositoryGraph({ project }) {
-  const origin = project.origin || {}
-  const originRepo = origin.repo || project.canonical_repo || 'No recorded origin'
-  const originRef = origin.ref || project.base_ref || 'origin/main'
-  const originSha = origin.sha || project.base_sha
-  const relation = project.originBehind
-    ? `${countLabel(project.originBehind, 'incoming commit')} from origin`
-    : project.authoredFiles
-      ? 'Your main differs from the installed source'
-      : project.managedFiles
-        ? 'Only installation-managed files differ'
-        : 'Your source tree matches the installed source'
-
-  return (
-    <section className="co-map-graph" aria-label="Repository relationship map">
-      <div className="co-map-primary">
-        <RepoNode
-          kind="origin"
-          eyebrow="Origin"
-          title={originRepo}
-          refName={originRef}
-          sha={originSha}
-        />
-        <div className={'co-map-edge state-' + project.state} aria-hidden="true">
-          <span /><i>→</i>
-        </div>
-        <RepoNode
-          kind="local"
-          eyebrow="This Möbius"
-          title="Your main"
-          refName={project.branch || (project.detached ? 'detached' : 'main')}
-          sha={project.head_sha}
-          note={relation}
-        />
-      </div>
-
-      <div className="co-map-stats" aria-label="Origin and local differences">
-        <span><b>{project.originBehind}</b> incoming</span>
-        <span><b>{project.authoredFiles}</b> different</span>
-        <span><b>{project.workingFiles}</b> working</span>
-      </div>
-
-      {project.forks.length > 0 && (
-        <div className="co-map-fork-zone">
-          <div className="co-map-fork-label">Forks</div>
-          {project.forks.map((fork) => (
-            <div className="co-map-fork-row" key={fork.repo}>
-              <span className="co-map-fork-connector" aria-hidden="true" />
-              <RepoNode
-                kind="fork"
-                eyebrow="Your GitHub fork"
-                title={fork.repo}
-                refName={fork.ref || fork.branch || 'main'}
-                sha={fork.sha}
-                note={fork.contributions?.length
-                  ? countLabel(fork.contributions.length, 'active PR')
-                  : null}
-              />
-              <div className="co-map-fork-state"><ForkState fork={fork} /></div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
 function PrStatus({ rec }) {
   const ready = rec.status === 'prepared'
   const label = rec.needs_attention
     ? (rec.attention?.title || 'Checks failed')
-    : ready ? 'Ready' : rec.status === 'submitting' ? 'Sending' : 'Open'
+    : ready ? 'Ready'
+      : rec.status === 'submitting' ? 'Sending'
+        : rec.status === 'draft' ? 'Draft'
+          : rec.status === 'merged' ? 'Merged'
+            : 'Open'
   const tone = rec.needs_attention ? 'danger' : ready ? 'ready' : 'open'
   return <span className={'co-pr-status is-' + tone}>{label}</span>
 }
 
 function PullRequestNode({ rec, project, chained = false }) {
   const meta = stackMeta(rec)
-  const title = rec.title || rec.summary || recordBranch(rec) || 'Untitled contribution'
+  const title = rec.summary || rec.title || recordBranch(rec) || 'Untitled contribution'
   const fork = rec.head_repository || (rec.status === 'prepared' ? 'Private branch' : 'Fork unknown')
   return (
     <div className={'co-pr-node' + (chained ? ' is-chained' : '')}>
@@ -166,12 +140,22 @@ function PullRequestNode({ rec, project, chained = false }) {
         {rec.url ? (
           <a href={rec.url} target="_blank" rel="noopener noreferrer">{title}</a>
         ) : <strong>{title}</strong>}
-        <div className="co-pr-route">
-          <code>{meta?.baseBranch || project.base_ref || 'main'}</code>
-          <span aria-hidden="true">→</span>
-          <code>{recordBranch(rec) || 'branch unavailable'}</code>
-        </div>
-        <small>{fork} · {contributionRelationship(rec, project)}</small>
+        <small className="co-pr-origin">
+          {rec.status === 'prepared'
+            ? 'From this Möbius'
+            : rec.head_repository
+              ? 'From your GitHub copy'
+              : 'From the shared source'}
+        </small>
+        <details className="co-pr-technical">
+          <summary>Technical details</summary>
+          <div className="co-pr-route">
+            <code>{meta?.baseBranch || project.base_ref || 'main'}</code>
+            <span aria-hidden="true">→</span>
+            <code>{recordBranch(rec) || 'branch unavailable'}</code>
+          </div>
+          <small>{fork} · {contributionRelationship(rec, project)}</small>
+        </details>
         {rec.needs_attention && rec.attention?.message && (
           <em>{rec.attention.message}</em>
         )}
@@ -180,117 +164,150 @@ function PullRequestNode({ rec, project, chained = false }) {
   )
 }
 
-function PullRequestMap({ project, onShowContributions }) {
+function PullRequestMap({ project }) {
   const contributions = project.contributions || []
   if (contributions.length === 0) return null
   const units = groupContributionUnits(contributions)
   return (
-    <section className="co-pr-map">
-      <div className="co-map-section-head">
-        <div><span>Pull requests</span><strong>{contributions.length} active</strong></div>
-        <button type="button" className="co-link-btn" onClick={onShowContributions}>Review all</button>
-      </div>
-      <div className="co-pr-units">
-        {units.map((unit) => unit.type === 'stack' ? (
-          <div className="co-pr-stack-map" key={'stack:' + unit.id}>
-            <header>
-              <span className="co-chain-mark" aria-hidden="true">⛓</span>
-              <div><strong>{unit.name}</strong><small>Chained PRs · each layer builds on the one above</small></div>
-            </header>
-            <div className="co-pr-chain">
-              {unit.records.map((rec) => (
-                <PullRequestNode key={rec.id} rec={rec} project={project} chained />
-              ))}
+    <details className="co-pr-map">
+      <summary>
+        <span>Changes</span>
+        <strong>{contributions.length}</strong>
+        <Icon name="chevron" size={16} />
+      </summary>
+      <div className="co-pr-map-body">
+        <div className="co-pr-units">
+          {units.map((unit) => unit.type === 'stack' ? (
+            <div className="co-pr-stack-map" key={'stack:' + unit.id}>
+              <header>
+                <span className="co-chain-mark" aria-hidden="true">⛓</span>
+                <div><strong>{unit.name}</strong><small>Related changes · reviewed in order</small></div>
+              </header>
+              <div className="co-pr-chain">
+                {unit.records.map((rec) => (
+                  <PullRequestNode key={rec.id} rec={rec} project={project} chained />
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
-          <PullRequestNode key={unit.record.id} rec={unit.record} project={project} />
-        ))}
+          ) : (
+            <PullRequestNode key={unit.record.id} rec={unit.record} project={project} />
+          ))}
+        </div>
       </div>
-    </section>
+    </details>
   )
 }
 
-function FileRow({ file, working = false }) {
-  return (
-    <div className="co-map-file" title={file.path}>
-      {working && <span className={'co-map-work is-' + file.group}>{file.group}</span>}
-      <code>{file.path}</code>
-      {!working && (
-        <span>{file.binary ? 'binary' : <><b>+{file.insertions}</b><em>−{file.deletions}</em></>}</span>
-      )}
-    </div>
-  )
+function fileStateLabel(group) {
+  if (group === 'conflict') return 'Conflict'
+  if (group === 'untracked') return 'New'
+  if (group === 'staged') return 'Staged'
+  return 'Editing'
 }
 
-function DifferenceMap({ project }) {
-  const tree = project.comparisonTree || project.tree
+function ProjectFileChanges({ project }) {
+  const [expanded, setExpanded] = useState(false)
+  const tree = project.comparisonTree
   const working = project.working
-  if (!tree?.available && !working?.available) return null
-  const authored = (tree?.paths || []).filter((file) => file.group !== 'managed')
-  const managed = (tree?.paths || []).filter((file) => file.group === 'managed')
-  const authoredCount = Number(tree?.authored_files ?? tree?.files ?? 0)
-  const managedCount = Number(tree?.managed_files || 0)
-  const workingCount = Number(working?.files || 0)
+  const files = new Map()
+
+  for (const file of tree?.paths || []) {
+    if (file.group === 'managed') continue
+    files.set(file.path, { ...file })
+  }
+  for (const file of working?.paths || []) {
+    files.set(file.path, { ...(files.get(file.path) || {}), ...file, working: true })
+  }
+
+  const rows = [...files.values()].sort((a, b) => {
+    if (a.working !== b.working) return a.working ? -1 : 1
+    return a.path.localeCompare(b.path)
+  })
+  if (!rows.length) return null
+
+  const changed = Number(project.authoredFiles || 0)
+  const editing = Number(project.workingFiles || 0)
+  const summary = [
+    changed ? `${changed} changed` : '',
+    editing ? `${editing} being edited` : '',
+  ].filter(Boolean).join(' · ')
+  const previewCount = 4
+  const shown = expanded ? rows : rows.slice(0, previewCount)
+  const hidden = rows.length - shown.length
+
   return (
-    <section className="co-difference-map">
-      <div className="co-map-section-head">
-        <div><span>Where it differs</span><strong>{authoredCount + workingCount} local file differences</strong></div>
-      </div>
-      <div className="co-difference-columns">
-        <div className="co-difference-group">
-          <h4><span className="co-diff-dot is-committed" />Committed tree differences <b>{authoredCount}</b></h4>
-          {authoredCount === 0 ? <p>None — the editable source matches.</p> : (
-            <div className="co-map-files">
-              {authored.map((file) => <FileRow key={file.path} file={file} />)}
-              {authoredCount > authored.length && <small>+{authoredCount - authored.length} more</small>}
-            </div>
-          )}
-        </div>
-        <div className="co-difference-group">
-          <h4><span className="co-diff-dot is-working" />Working now <b>{workingCount}</b></h4>
-          {workingCount === 0 ? <p>Nothing unstaged, staged, or untracked.</p> : (
-            <div className="co-map-files">
-              {(working.paths || []).map((file) => <FileRow key={file.status + file.path} file={file} working />)}
-              {working.truncated && <small>More working files are not shown.</small>}
-            </div>
-          )}
-        </div>
-      </div>
-      {managedCount > 0 && (
-        <details className="co-managed-differences">
-          <summary>
-            <span><i aria-hidden="true">◇</i>{managedCount} installation-managed {managedCount === 1 ? 'difference' : 'differences'}</span>
-            <small>Expected packaging changes, not your customization</small>
-          </summary>
-          <div className="co-map-files">
-            {managed.map((file) => <FileRow key={file.path} file={file} />)}
-            {managedCount > managed.length && <small>+{managedCount - managed.length} more</small>}
+    <section className="co-project-files">
+      <header>
+        <span>File changes</span>
+        <small>{summary}</small>
+      </header>
+      <div className="co-project-file-list">
+        {shown.map((file) => (
+          <div className="co-project-file" key={file.path} title={file.path}>
+            <code>{file.path}</code>
+            <span className="co-project-file-meta">
+              {file.working && <i className={'is-' + file.group}>{fileStateLabel(file.group)}</i>}
+              {!file.binary && (file.insertions != null || file.deletions != null) && (
+                <span><b>+{file.insertions || 0}</b><em>−{file.deletions || 0}</em></span>
+              )}
+              {file.binary && <span>Binary</span>}
+            </span>
           </div>
-        </details>
+        ))}
+        {expanded && tree?.truncated && (
+          <p>Showing {tree.paths?.filter((file) => file.group !== 'managed').length || 0} of {changed} changed files.</p>
+        )}
+      </div>
+      {rows.length > previewCount && (
+        <button
+          type="button"
+          className="co-project-files-toggle"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          {expanded
+            ? 'Show fewer files'
+            : tree?.truncated
+              ? `Show ${hidden} more available ${hidden === 1 ? 'file' : 'files'}`
+              : `Show all ${rows.length} files`}
+          <Icon name="chevron" size={15} />
+        </button>
       )}
     </section>
   )
 }
 
-function ProjectDetail({ project, onShowContributions }) {
+function ProjectDetail({ project }) {
   const status = projectStatus(project)
+  const overview = project.kind === 'external'
+    ? 'This project is not installed here, but it still has a contribution in review.'
+    : project.state === 'conflict'
+      ? 'An update needs attention before this project can move forward.'
+      : project.workingFiles > 0
+        ? 'This project is currently being edited in your Möbius.'
+        : project.originBehind > 0 && project.originAhead > 0
+          ? 'Both your version and the shared version have changed.'
+          : project.originBehind > 0
+            ? 'A newer shared version is available.'
+            : project.different
+              ? 'Your Möbius includes changes that are not in the shared version.'
+              : 'Your version matches the shared source.'
   return (
     <article className="co-source-detail">
       <header className="co-source-detail-head">
         <div className="co-source-detail-title">
           <ProjectGlyph project={project} />
-          <div><h3>{project.name}</h3><p>{project.canonical_repo || 'Local repository'}</p></div>
+          <div><h3>{project.name}</h3></div>
         </div>
         <span className={'co-source-status tone-' + status.tone}>{status.label}</span>
       </header>
-      {project.kind !== 'external' && project.available ? (
-        <RepositoryGraph project={project} />
-      ) : project.kind !== 'external' ? (
-        <div className="co-source-unavailable">No inspectable local Git repository.</div>
+      <p className="co-source-overview-copy">{overview}</p>
+      <ProjectFlow project={project} />
+      <PullRequestMap project={project} />
+      <ProjectFileChanges key={project.key} project={project} />
+      {project.kind !== 'external' && !project.available ? (
+        <div className="co-source-unavailable">No inspectable local source is available.</div>
       ) : null}
-      <PullRequestMap project={project} onShowContributions={onShowContributions} />
-      {project.kind !== 'external' && project.available && <DifferenceMap project={project} />}
     </article>
   )
 }
@@ -298,12 +315,12 @@ function ProjectDetail({ project, onShowContributions }) {
 function ProjectRow({ project, selected, onSelect }) {
   const status = projectStatus(project)
   const facts = []
-  if (project.authoredFiles) facts.push(countLabel(project.authoredFiles, 'different', 'different'))
-  if (project.workingFiles) facts.push(countLabel(project.workingFiles, 'working', 'working'))
-  if (project.contributions.length) facts.push(countLabel(project.contributions.length, 'PR'))
-  if (project.forks.length) facts.push(countLabel(project.forks.length, 'fork'))
-  if (!facts.length && project.managedFiles) facts.push(countLabel(project.managedFiles, 'install-managed', 'install-managed'))
-  if (!facts.length) facts.push(project.available ? 'In sync' : 'Not tracked')
+  if (project.workingFiles) facts.push('Being edited')
+  if (project.originBehind) facts.push('Update available')
+  if (project.authoredFiles) facts.push('Changed here')
+  if (project.contributions.length) facts.push(countLabel(project.contributions.length, 'review'))
+  if (!facts.length && project.managedFiles) facts.push('Installed normally')
+  if (!facts.length) facts.push(project.available ? 'Up to date' : 'Not tracked')
   return (
     <div className={'co-source-row-wrap' + (selected ? ' is-selected' : '')}>
       <button
@@ -315,7 +332,6 @@ function ProjectRow({ project, selected, onSelect }) {
         <ProjectGlyph project={project} />
         <span className="co-source-row-id">
           <strong>{project.name}</strong>
-          <small>{project.canonical_repo || 'Local app'}</small>
         </span>
         <span className="co-source-row-facts">{facts.join(' · ')}</span>
         <span className={'co-source-dot tone-' + status.tone} title={status.label} />
@@ -328,27 +344,47 @@ function LoadingState() {
   return (
     <div className="co-source-loading" role="status">
       <span className="ma-spinner" aria-hidden="true" />
-      <div><strong>Mapping repositories…</strong><span>Comparing origin, local mains, forks, and PR branches.</span></div>
+      <div><strong>Checking your code…</strong><span>Looking for local changes and shared reviews.</span></div>
     </div>
   )
 }
 
-export function SourceMap({ snapshot, records, conn, loading, error, onRetry, onShowContributions }) {
+export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) {
   const [filter, setFilter] = useState('all')
   const projects = useMemo(
-    () => attachSourceProjects(snapshot, records).filter((project) => project.available),
+    () => attachSourceProjects(snapshot, records),
     [snapshot, records],
   )
-  const summary = useMemo(() => sourceSummary(projects), [projects])
   const filtered = useMemo(
     () => projects.filter((project) => projectMatchesFilter(project, filter)),
     [projects, filter],
   )
   const [selected, setSelected] = useState('platform')
   const [mobileOpen, setMobileOpen] = useState(false)
-  useEffect(() => {
-    document.querySelector('.co-page')?.scrollTo({ top: 0, left: 0 })
-  }, [mobileOpen])
+  const listScrollRef = useRef(0)
+
+  function pageScroller() {
+    return document.querySelector('.co-page')
+  }
+
+  function openProject(key) {
+    const page = pageScroller()
+    listScrollRef.current = page?.scrollTop || 0
+    setSelected(key)
+    setMobileOpen(true)
+    // Run after React swaps the mobile list for the detail. This prevents
+    // scroll anchoring from restoring the list offset onto the new panel.
+    requestAnimationFrame(() => pageScroller()?.scrollTo({ top: 0, left: 0 }))
+  }
+
+  function closeProject() {
+    setMobileOpen(false)
+    // Back returns to the exact list position the owner left.
+    requestAnimationFrame(() => pageScroller()?.scrollTo({
+      top: listScrollRef.current,
+      left: 0,
+    }))
+  }
   useEffect(() => {
     if (filtered.length > 0 && !filtered.some((project) => project.key === selected)) {
       setSelected(filtered[0].key)
@@ -360,7 +396,7 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry, on
   if (error && !snapshot) {
     return (
       <div className="co-source-error">
-        <strong>{error === 'restart' ? 'Restart to finish Repository map' : 'Repository map unavailable'}</strong>
+        <strong>{error === 'restart' ? 'Restart to finish Projects' : 'Projects unavailable'}</strong>
         <p>{error === 'restart'
           ? 'The visual map is installed, but its read-only source service starts after the next Möbius restart.'
           : 'Contribute could not read local source status. Your contribution feed is unaffected.'}</p>
@@ -373,19 +409,28 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry, on
     ? new Date(snapshot.generated_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : ''
   return (
-    <section className={'co-sources' + (mobileOpen ? ' is-detail-open' : '')} aria-labelledby="co-sources-title">
+    <section
+      id="co-panel-sources"
+      className={'co-sources' + (mobileOpen ? ' is-detail-open' : '')}
+      role="tabpanel"
+      aria-labelledby="co-tab-sources"
+    >
       <div className="co-sources-head">
         <div>
-          <h2 id="co-sources-title">Repository map</h2>
-          <p>
-            <strong>{summary.sources}</strong> Git repositories · <strong>{summary.different}</strong> different from origin ·{' '}
-            <strong>{summary.active}</strong> active PRs · <strong>{summary.forks}</strong> forks
-          </p>
+          <h2 id="co-sources-title">Where changes live</h2>
+          <p>See which projects differ here and which changes are being shared.</p>
         </div>
         <div className="co-sources-fresh">
-          {compared && <span>{compared}</span>}
-          <button type="button" className="co-btn co-btn-sm" onClick={onRetry} disabled={loading}>
-            {loading ? 'Comparing…' : 'Refresh'}
+          {compared && <span>Checked {compared}</span>}
+          <button
+            type="button"
+            className="co-icon-btn co-source-refresh"
+            onClick={onRetry}
+            disabled={loading}
+            aria-label={loading ? 'Checking for changes' : 'Check again'}
+            title={loading ? 'Checking…' : 'Check again'}
+          >
+            <Icon name="refresh" />
           </button>
         </div>
       </div>
@@ -393,9 +438,14 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry, on
       {conn?.state !== 'connected' && (
         <div className="co-source-note">Local positions are current; GitHub PR states may be older.</div>
       )}
+      {error && snapshot ? (
+        <div className="co-source-warning" role="status">
+          Refresh failed — keeping the last repository map on screen.
+        </div>
+      ) : null}
 
       <div className="co-source-toolbar">
-        <div className="co-source-filters" role="group" aria-label="Filter repositories">
+        <div className="co-source-filters" role="group" aria-label="Filter projects">
           {FILTERS.map(([key, label]) => (
             <button
               type="button"
@@ -406,11 +456,10 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry, on
             >{label}</button>
           ))}
         </div>
-        {summary.adapted > 0 && <span className="co-adapted-note">{summary.adapted} installs adapted safely</span>}
       </div>
 
       {filtered.length === 0 ? (
-        <div className="co-source-no-results">No repositories match this filter.</div>
+        <div className="co-source-no-results">No projects match this filter.</div>
       ) : (
         <div className={'co-source-layout' + (mobileOpen ? ' is-mobile-open' : '')}>
           <div className="co-source-list">
@@ -419,16 +468,16 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry, on
                 key={project.key}
                 project={project}
                 selected={project.key === selectedProject?.key}
-                onSelect={(key) => { setSelected(key); setMobileOpen(true) }}
+                onSelect={openProject}
               />
             ))}
           </div>
           {selectedProject && (
             <aside className="co-source-desktop-detail">
-              <button type="button" className="co-map-back" onClick={() => setMobileOpen(false)}>
-                <span aria-hidden="true">←</span> Repositories
+              <button type="button" className="co-map-back" onClick={closeProject}>
+                <span aria-hidden="true">←</span> All projects
               </button>
-              <ProjectDetail project={selectedProject} onShowContributions={onShowContributions} />
+              <ProjectDetail project={selectedProject} />
             </aside>
           )}
         </div>

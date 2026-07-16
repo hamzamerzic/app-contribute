@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useId, useRef, useState } from 'react'
 import { STATUS_LABELS, TYPE_LABELS, timeAgo } from '../domain.js'
 import { parseDiffStat } from '../diff.js'
 import { FileDiffList } from './FileDiffList.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
+import { Icon } from './Icons.jsx'
 
 // One ledger row. Pointer clicks on a linked PR/issue card open the target, and
 // pointer clicks on a prepared card open its review detail; keyboard users keep
@@ -72,7 +73,7 @@ function DiffLine({ stat }) {
 
 function PlanSummary({ rec }) {
   return (
-    <div className="co-plan-summary">
+    <div className="co-technical-summary">
       <PlanMeta rec={rec} />
       <DiffLine stat={rec.plan?.diff_stat} />
     </div>
@@ -82,11 +83,29 @@ function PlanSummary({ rec }) {
 // A persisted submit failure, shown as a real alert strip (not stray red text)
 // on the prepared card in both the collapsed and expanded states, so the reason
 // a Send bounced stays visible while the partner fixes it.
-function SubmitErrorAlert({ rec }) {
-  if (!rec.last_submit_error) return null
+function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
+  const blocked = reviewState?.state === 'needs_refresh'
+  if (!blocked && (reviewState?.state === 'ready' || !rec.last_submit_error)) return null
+  const message = blocked
+    ? (reviewState.message || 'The staged source no longer matches this review.')
+    : rec.last_submit_error
+
+  function askAgent() {
+    if (typeof onFeedback !== 'function') return
+    onFeedback(rec, {
+      draft: `Please refresh contribution ${rec.id} ("${rec.title || 'untitled'}"). Contribute found: ${message}\n\n`,
+    })
+  }
+
   return (
     <div className="co-alert" role="status">
-      <p className="co-alert-text">{rec.last_submit_error}</p>
+      <strong>{blocked ? 'Fresh review needed' : 'Could not send'}</strong>
+      <p className="co-alert-text">{message}</p>
+      {blocked && typeof onFeedback === 'function' ? (
+        <button type="button" className="co-btn co-btn-sm" onClick={askAgent}>
+          Ask agent to refresh
+        </button>
+      ) : null}
       {typeof rec.last_pushed_branch_url === 'string' &&
         rec.last_pushed_branch_url.startsWith('https://github.com/') ? (
         <a
@@ -177,8 +196,11 @@ function ReviewPlan({ rec, loadDiff }) {
   return (
     <>
       <span className="co-review-badge">{badge}</span>
-      {plan.title && plan.title !== rec.title ? (
-        <div className="co-review-title">{plan.title}</div>
+      {plan.title ? (
+        <section className="co-review-section">
+          <div className="co-review-section-title">GitHub title</div>
+          <div className="co-review-title">{plan.title}</div>
+        </section>
       ) : null}
       {isPr ? (
         <div className="co-review-coauthor" title="The contribution workflow adds this commit trailer before publishing.">
@@ -210,7 +232,7 @@ function ReviewPlan({ rec, loadDiff }) {
 
 // The Send/Dismiss row plus its outcome messaging; shared by the plan
 // review and the plan-less v1 fallback.
-function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
+function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
   const [sendNote, setSendNote] = useState(null)
   const [sending, setSending] = useState(false)
   const [dismissing, setDismissing] = useState(false)
@@ -220,9 +242,18 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
   const [confirmingDismiss, setConfirmingDismiss] = useState(false)
   const [note, setNote] = useState(null)
   const isPr = rec.plan?.action === 'pr' || rec.type === 'pr'
+  const blocked = reviewState?.state === 'needs_refresh'
+  const keepButtonRef = useRef(null)
+  const confirmDescriptionId = useId()
+
+  // The confirm replaces the action row. Move focus to the safe choice so
+  // keyboard and switch users never land on the destructive action by default.
+  useEffect(() => {
+    if (confirmingDismiss) keepButtonRef.current?.focus()
+  }, [confirmingDismiss])
 
   async function send() {
-    if (!isPr) return
+    if (!isPr || blocked) return
     setSending(true)
     setSendNote(null)
     setNote(null)
@@ -241,7 +272,12 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
   function feedback() {
     setSendNote(null)
     setNote(null)
-    const outcome = (typeof onFeedback === 'function' && onFeedback(rec)) || {}
+    const outcome = (typeof onFeedback === 'function' && onFeedback(
+      rec,
+      blocked ? {
+        draft: `Please refresh contribution ${rec.id} ("${rec.title || 'untitled'}"). Contribute found: ${reviewState.message || 'the staged source changed after review.'}\n\n`,
+      } : {},
+    )) || {}
     if (!outcome.ok) {
       setNote(outcome.reason === 'missing-chat'
         ? 'This older record does not know which chat created it.'
@@ -272,14 +308,20 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
   return (
     <>
       {confirmingDismiss ? (
-        <div className="co-confirm" role="alertdialog" aria-label="Confirm drop">
-          <p className="co-confirm-text">
+        <div
+          className="co-confirm"
+          role="alertdialog"
+          aria-label="Confirm drop"
+          aria-describedby={confirmDescriptionId}
+        >
+          <p id={confirmDescriptionId} className="co-confirm-text">
             Drop this prepared contribution? It moves to History — you can undrop
             it there anytime.
           </p>
           <div className="co-confirm-actions">
             <button
               type="button"
+              ref={keepButtonRef}
               className="co-btn co-btn-sm"
               disabled={dismissing}
               onClick={() => setConfirmingDismiss(false)}
@@ -297,26 +339,40 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
           </div>
         </div>
       ) : (
-        <div className={`co-review-actions${isPr ? '' : ' is-secondary-only'}`}>
+        <div className="co-review-actions" aria-label="Contribution actions">
           {isPr ? (
             <button
               type="button"
-              className="co-btn co-btn-primary"
-              disabled={sending}
+              className="co-icon-btn is-primary"
+              disabled={sending || blocked}
               onClick={send}
+              aria-label={sending
+                ? 'Sending pull request'
+                : blocked
+                  ? 'Fresh review required before sending'
+                  : 'Send pull request for review'}
+              title={blocked ? 'Fresh review required' : 'Send for review'}
             >
-              {sending ? 'Sending…' : 'Send PR'}
+              {sending ? <span className="co-action-spinner" aria-hidden="true" /> : <Icon name="send" />}
             </button>
           ) : null}
-          <button type="button" className="co-btn" onClick={feedback}>
-            Feedback
+          <button
+            type="button"
+            className="co-icon-btn"
+            onClick={feedback}
+            aria-label={blocked ? 'Ask agent to refresh this review' : 'Give feedback'}
+            title={blocked ? 'Ask agent to refresh' : 'Give feedback'}
+          >
+            <Icon name="feedback" />
           </button>
           <button
             type="button"
-            className="co-btn co-btn-sm co-btn-danger"
+            className="co-icon-btn is-danger"
             onClick={() => setConfirmingDismiss(true)}
+            aria-label="Drop contribution"
+            title="Drop"
           >
-            Drop
+            <Icon name="trash" />
           </button>
         </div>
       )}
@@ -324,11 +380,11 @@ function ReviewActions({ rec, onSend, onFeedback, onDismiss }) {
         <p className="co-review-note">
           Only prepared PRs can be sent to GitHub from here right now.
         </p>
-      ) : (
+      ) : blocked ? (
         <p className="co-review-note">
-          Send may bring your GitHub fork up to date before opening the PR.
+          Sending is paused until the updated version is reviewed again.
         </p>
-      )}
+      ) : null}
       {sendNote && <p className="co-review-note">{sendNote}</p>}
       {note && <p className="co-review-error">{note}</p>}
     </>
@@ -379,6 +435,7 @@ function UndropAction({ rec, onRestore }) {
 
 export function ContributionCard({
   rec,
+  reviewState,
   onSend,
   onFeedback,
   onDismiss,
@@ -387,7 +444,8 @@ export function ContributionCard({
   reviewOnly = false,
 }) {
   const status = rec.status || 'prepared'
-  const statusLabel = STATUS_LABELS[status] || status
+  const blocked = status === 'prepared' && reviewState?.state === 'needs_refresh'
+  const statusLabel = blocked ? 'Needs refresh' : (STATUS_LABELS[status] || status)
   const typeLabel = TYPE_LABELS[rec.type] || rec.type || 'Contribution'
   const when = timeAgo(rec.updated_at || rec.created_at)
   const [expanded, setExpanded] = useState(false)
@@ -415,9 +473,8 @@ export function ContributionCard({
       )
     )
   const hasPlan = reviewable && rec.plan && typeof rec.plan === 'object'
+  const displayTitle = hasPlan && rec.summary ? rec.summary : title
   const wholeCardTarget = hasLink || hasPlan
-  const reviewLabel =
-    rec.plan?.action === 'pr' || rec.type === 'pr' ? 'Review PR' : 'Review'
 
   function openCardTarget() {
     if (hasPlan) {
@@ -447,14 +504,14 @@ export function ContributionCard({
             target="_blank"
             rel="noopener noreferrer"
           >
-            {title}
+            {displayTitle}
           </a>
         ) : (
-          <span className="co-card-title">{title}</span>
+          <span className="co-card-title">{displayTitle}</span>
         )}
-        <span className={`co-chip is-${status}`}>{statusLabel}</span>
+        <span className={`co-chip is-${blocked ? 'needs-refresh' : status}`}>{statusLabel}</span>
       </div>
-      {rec.summary ? <p className="co-card-summary">{rec.summary}</p> : null}
+      {!hasPlan && rec.summary ? <p className="co-card-summary">{rec.summary}</p> : null}
       {/* Non-plan cards keep the generic type · repo#number · time line; a
           prepared plan card carries its own repo · branch · time line inside
           the collapsed summary, so the two never stack. */}
@@ -469,29 +526,44 @@ export function ContributionCard({
         </div>
       )}
       <AttentionCallout rec={rec} onFeedback={onFeedback} />
-      {hasPlan && !expanded ? <PlanSummary rec={rec} /> : null}
-      <SubmitErrorAlert rec={rec} />
+      <SubmitErrorAlert rec={rec} reviewState={reviewState} onFeedback={onFeedback} />
       {hasPlan && (
-        <button
-          type="button"
-          className="co-btn co-btn-sm co-review-toggle"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? 'Hide review' : reviewLabel}
-        </button>
-      )}
-      {reviewable && (!hasPlan || expanded) && (
-        <div className="co-review">
-          {hasPlan && <ReviewPlan rec={rec} loadDiff={loadDiff} />}
+        <div className="co-card-footer">
+          <button
+            type="button"
+            className="co-details-toggle"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <span>{expanded ? 'Hide details' : 'Details'}</span>
+            <span className={expanded ? 'is-open' : ''}><Icon name="chevron" size={16} /></span>
+          </button>
           {!reviewOnly && (
             <ReviewActions
               rec={rec}
+              reviewState={reviewState}
               onSend={onSend}
               onFeedback={onFeedback}
               onDismiss={onDismiss}
             />
           )}
+        </div>
+      )}
+      {reviewable && !hasPlan && !reviewOnly && (
+        <div className="co-card-footer is-actions-only">
+          <ReviewActions
+            rec={rec}
+            reviewState={reviewState}
+            onSend={onSend}
+            onFeedback={onFeedback}
+            onDismiss={onDismiss}
+          />
+        </div>
+      )}
+      {hasPlan && expanded && (
+        <div className="co-review">
+          <PlanSummary rec={rec} />
+          <ReviewPlan rec={rec} loadDiff={loadDiff} />
         </div>
       )}
       {status === 'abandoned' && typeof onRestore === 'function' && (

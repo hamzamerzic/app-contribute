@@ -7,6 +7,7 @@ import {
   projectMatchesFilter,
   projectForks,
   projectStatus,
+  recordBranch,
   sourceSummary,
 } from '../source-map.js'
 
@@ -29,9 +30,10 @@ const snapshot = {
 
 test('joins only active contribution records to their source project', () => {
   const records = [
-    { id: 'ready', repo: 'MOBIUS-OS/MOBIUS', status: 'prepared', plan: {} },
-    { id: 'open', repo: 'mobius-os/app-contribute', status: 'open', plan: {} },
-    { id: 'done', repo: 'mobius-os/mobius', status: 'merged', plan: {} },
+    { id: 'ready', type: 'pr', repo: 'MOBIUS-OS/MOBIUS', status: 'prepared', plan: {} },
+    { id: 'open', type: 'pr', repo: 'mobius-os/app-contribute', status: 'open', plan: {} },
+    { id: 'done', type: 'pr', repo: 'mobius-os/mobius', status: 'merged', plan: {} },
+    { id: 'issue', type: 'issue', repo: 'mobius-os/mobius', status: 'prepared', plan: {} },
   ]
   const projects = attachSourceProjects(snapshot, records)
   assert.equal(projects[0].name, 'Möbius')
@@ -51,7 +53,7 @@ test('tree equality wins over bookkeeping-only ahead history', () => {
 
 test('active records for an uninstalled repo stay visible', () => {
   const projects = attachSourceProjects(snapshot, [{
-    id: 'other', repo: 'mobius-os/app-gone', status: 'open', title: 'Still open',
+    id: 'other', type: 'pr', repo: 'mobius-os/app-gone', status: 'open', title: 'Still open',
   }])
   const external = projects.find((p) => p.kind === 'external')
   assert.equal(external.canonical_repo, 'mobius-os/app-gone')
@@ -59,14 +61,36 @@ test('active records for an uninstalled repo stay visible', () => {
   assert.equal(projectStatus(external).label, 'Contribution only')
 })
 
+test('omits installed apps without a Git repository', () => {
+  const projects = attachSourceProjects({
+    ...snapshot,
+    apps: [
+      ...snapshot.apps,
+      {
+        key: 'app:local', kind: 'app', name: 'Local scratchpad',
+        available: false, canonical_repo: null, state: 'local_only',
+      },
+    ],
+  }, [])
+  assert.equal(projects.some((project) => project.name === 'Local scratchpad'), false)
+  assert.equal(sourceSummary(projects).sources, 2)
+})
+
 test('attention and relationship labels preserve real PR head topology', () => {
   const project = attachSourceProjects(snapshot, [{
-    id: 'pr', repo: 'mobius-os/mobius', status: 'open', needs_attention: true,
+    id: 'pr', type: 'pr', repo: 'mobius-os/mobius', status: 'open', needs_attention: true,
     last_submit_push_sha: 'eeeeeeee',
     plan: { base_sha: 'bbbbbbbb', head_sha: 'ffffffff' },
   }])[0]
   assert.equal(projectStatus(project).label, 'Needs attention')
   assert.equal(contributionRelationship(project.contributions[0], project), 'Published as eeeeeee')
+})
+
+test('reviewed plan branch wins over a stale top-level mirror', () => {
+  assert.equal(recordBranch({
+    branch: 'stale-branch',
+    plan: { branch: 'stack/current/01-layer' },
+  }), 'stack/current/01-layer')
 })
 
 test('joins configured and contribution-discovered forks without duplication', () => {

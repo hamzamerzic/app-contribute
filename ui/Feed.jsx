@@ -1,6 +1,7 @@
 import { ContributionCard } from './ContributionCard.jsx'
 import { ContributionStack } from './ContributionStack.jsx'
 import { preparedContributionUnits } from '../stack.js'
+import { reviewStateFor } from '../review.js'
 
 // The grouped feed. domain.groupRecords partitions the ledger into three
 // buckets; each renders as a section only when it has rows, so the layout
@@ -20,6 +21,7 @@ import { preparedContributionUnits } from '../stack.js'
 export function Feed({
   groups,
   records,
+  reviewStatus,
   onSend,
   onSendStack,
   onFeedback,
@@ -33,15 +35,20 @@ export function Feed({
     <>
       {ready.length > 0 && (
         <section className="co-section">
-          <h2 className="co-section-title">Ready for review</h2>
-          <p className="co-section-hint">
-            Review exactly what would go public. Sending a PR publishes it to
-            GitHub directly; feedback returns to the source chat.
-          </p>
+          <div>
+            <div className="co-section-headline">
+              <h2 className="co-section-title">Ready to send</h2>
+              <span>{ready.length}</span>
+            </div>
+            <p className="co-section-hint">
+              Send a change, view its details, or leave feedback.
+            </p>
+          </div>
           {readyUnits.map((unit) => unit.type === 'stack' ? (
             <ContributionStack
               key={'stack:' + unit.id}
               unit={unit}
+              reviewStatus={reviewStatus}
               onSendStack={onSendStack}
               onFeedback={onFeedback}
               loadDiff={loadDiff}
@@ -50,6 +57,7 @@ export function Feed({
             <ContributionCard
               key={unit.record.id}
               rec={unit.record}
+              reviewState={reviewStateFor(unit.record, reviewStatus)}
               onSend={onSend}
               onFeedback={onFeedback}
               onDismiss={onDismiss}
@@ -61,7 +69,10 @@ export function Feed({
 
       {open.length > 0 && (
         <section className="co-section">
-          <h2 className="co-section-title">Open</h2>
+          <div className="co-section-headline">
+            <h2 className="co-section-title">Open</h2>
+            <span>{open.length}</span>
+          </div>
           {open.map((rec) => (
             <ContributionCard key={rec.id} rec={rec} onFeedback={onFeedback} />
           ))}
@@ -69,12 +80,17 @@ export function Feed({
       )}
 
       {history.length > 0 && (
-        <section className="co-section">
-          <h2 className="co-section-title">History</h2>
-          {history.map((rec) => (
-            <ContributionCard key={rec.id} rec={rec} onRestore={onRestore} />
-          ))}
-        </section>
+        <details className="co-section co-history">
+          <summary>
+            <span>History</span>
+            <small>{history.length} completed contributions</small>
+          </summary>
+          <div className="co-history-feed">
+            {history.map((rec) => (
+              <ContributionCard key={rec.id} rec={rec} onRestore={onRestore} />
+            ))}
+          </div>
+        </details>
       )}
     </>
   )

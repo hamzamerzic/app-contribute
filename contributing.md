@@ -142,6 +142,15 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
        diff_excerpt?}         # diff_stat REQUIRED; diff_excerpt legacy (unused)
 ```
 
+- Write `summary` for a person who does not know Git or the codebase: one short
+  sentence about what becomes clearer, safer, faster, or easier. Do not put file
+  names, branch names, implementation terms, or test counts in it. The app uses
+  this as the card headline and keeps the GitHub title and source details behind
+  **Details**.
+- Keep `title` concise and suitable for GitHub. It may use the technical term
+  needed by maintainers because it is shown inside the expanded details rather
+  than as the primary owner-facing explanation.
+
 - `body_draft` is the FULL text you propose to publish — PR body, issue body, or
   comment, word for word. The partner reviews exactly this; never publish
   anything that differs from what they approved.
@@ -186,8 +195,9 @@ No agent turn is needed after that click. The platform endpoint:
 3. verifies the commit carries the Möbius Agent co-author trailer,
 4. normalizes the tip commit author/committer to the connected owner while
    preserving the reviewed diff,
-5. safely fast-forwards a stale reusable fork default branch from upstream
-   (and stops without rewriting it if the fork has diverged),
+5. adapts the reviewed topic commit to a strictly-behind reusable fork without
+   changing its default branch, then proves the upstream merge result still
+   matches the exact reviewed diff (a diverged fork stops untouched),
 6. pushes the branch to the owner's fork,
 7. creates a review-ready PR with the approved `title` and `body_draft`, and
 8. records `url`, `number`, and `status: "open"` back into the ledger.
@@ -206,6 +216,9 @@ When 2–12 prepared PR records carry one complete `plan.stack` chain,
 Contribute groups them into one visual review and shows **Send N-PR stack**.
 The second, explicit confirmation lists every title and `base → branch` pair;
 that one click approves exactly those enumerated pushes and PR creations.
+Any record carrying `plan.stack` is stack-only: malformed or incomplete chains
+stay visible for feedback, but neither the app nor the platform may fall back
+to sending one layer through the standalone PR path.
 
 Before the first public push, the platform rechecks every record, every stored
 diff, every parent SHA, the full branch topology, commit attribution, and the
@@ -213,7 +226,11 @@ whole stack's ability to merge with current upstream. It then publishes the
 branches and opens the PRs from parent to child. If a later layer fails after a
 parent PR was already created, the successful record remains open and every
 unsent record returns to `prepared` with the durable error — retry never hides
-the partial public state.
+the partial public state. Draft and open parents remain valid reviewed links,
+but their upstream branch must still point at the exact reviewed commit before
+another layer can be sent. If a parent has merged, rebuild the remaining private
+layers on current upstream and review them again; never silently retarget an old
+child, because squash/rebase merges can change the diff GitHub would show.
 
 **True stacks require upstream push permission.** GitHub cannot use a branch
 that exists only in the contributor's fork as the base of a PR in the upstream
@@ -229,6 +246,13 @@ diff that differs from the reviewed `.diff`.
 
 Run these during preparation, after the partner agrees to stage a PR for review.
 Do not fork, push, or create a PR here.
+
+**Use a linked worktree for every staged review checkout.** Its `.git` marker is
+a file pointing at the installed app/platform repo, not a nested `.git`
+directory. That keeps the live source on `main`, makes the review checkout
+restart-safe even on older images whose baked boot cleaner removes nested Git
+directories, and still gives Contribute a durable path to verify. Put it at
+`/data/contrib/<record-id>/worktree` and store that exact path as `repo_path`.
 
 ### Prepare a linked PR stack
 
@@ -268,68 +292,86 @@ as one review unit before saying the stack is ready.
 
 ### An app with a real origin (most catalog apps)
 
-`git -C /data/apps/<slug> remote get-url origin` succeeds → work in the app's own
-repo:
+`git -C /data/apps/<slug> remote get-url origin` succeeds → build one clean
+review commit in a linked worktree while the live app stays on `main`:
 
 ```bash
-cd /data/apps/<slug>                       # app's own repo; main is checked out
-git checkout -b fix/<slug>-<short>
+SOURCE=/data/apps/<slug>
+WORKTREE=/data/contrib/<record-id>/worktree
+BASE_SHA="$(git -C "$SOURCE" merge-base main upstream)"
+git -C "$SOURCE" -c core.quotePath=false diff --no-ext-diff --no-color \
+  --binary --full-index --src-prefix=a/ --dst-prefix=b/ \
+  "$BASE_SHA..main" > /tmp/<record-id>.diff
+git -C "$SOURCE" worktree add -b fix/<slug>-<short> "$WORKTREE" "$BASE_SHA"
+cd "$WORKTREE"
+git apply --index --binary /tmp/<record-id>.diff
 git_email="$(git config --global --get user.email || true)"
 if [ -n "$git_email" ] && [ "$git_email" != "agent@mobius" ]; then
   git config user.name "$(git config --global --get user.name)"
   git config user.email "$git_email"
 fi
-# Squash the watcher's commits into ONE clean, generic commit. `upstream` is the
-# Möbius per-app-git branch inside /data/apps/<slug>:
-git reset --soft "$(git merge-base HEAD upstream)"
 git commit -m "<one line, generic>" \
   -m "Co-authored-by: Möbius Agent <mobius-agent@users.noreply.github.com>"
-BASE_SHA="$(git merge-base HEAD upstream)"
 HEAD_SHA="$(git rev-parse HEAD)"
 git -c core.quotePath=false diff --no-ext-diff --no-color --binary \
   --full-index --src-prefix=a/ --dst-prefix=b/ \
   "$BASE_SHA..$HEAD_SHA" > /tmp/<record-id>.diff
 DIFF_SHA256="$(sha256sum /tmp/<record-id>.diff | awk '{print $1}')"
-git checkout main     # INVARIANT
 ```
 
-Then write the ledger record with `repo_path: "/data/apps/<slug>"`, `branch`,
+Then write the ledger record with `repo_path: "$WORKTREE"`, `branch`,
 `base_sha: "$BASE_SHA"`, `head_sha: "$HEAD_SHA"`, `diff_sha256` from
 `$DIFF_SHA256`, and `diff_stat` (required). `diff_excerpt` is legacy — omit it.
 
 Two invariants: the
 **`Co-authored-by: Möbius Agent` trailer on every contributed commit** (the
-visible Möbius mark on GitHub — partner stays author, Möbius co-author), and
-**`git checkout main` before the turn ends** — the watcher auto-commits partner
-edits onto the checked-out branch and store updates merge to `main`, so a dir left
-on `fix/…` derails the next edit and conflicts the next update. The `fix/` branch
-stays for follow-ups; only the checkout returns.
+visible Möbius mark on GitHub — partner stays author, Möbius co-author), and the
+**live source repo remains on `main`** — only the separate review worktree stays
+on `fix/…`, so watcher edits and store updates cannot land on the review branch.
 
 ### An app with no origin, or platform/shell
 
 **No origin** (installed from a manifest): derive the repo from `manifest_url`
 (`.../<org>/<repo>/<ref>/mobius.json` → `github.com/<org>/<repo>`), clone it into
-`/data/contrib/<record-id>/repo` (the primary durable staging root; legacy
-`/data/contributions/` still works), `checkout -b fix/…`, copy the changed
-source over (re-read vs the allowlist), and `commit` with the co-author trailer.
-Use that durable clone as `repo_path`. The live app dir never branches, so it
-never leaves `main`.
+`/data/contrib/<record-id>/worktree` with
+`--separate-git-dir=/data/contrib/<record-id>/git`, `checkout -b fix/…`, copy
+the changed source over (re-read vs the allowlist), and commit with the
+co-author trailer. The separate Git directory is deliberately named `git`, not
+`.git`, so older boot cleaners leave it intact. Use the worktree as `repo_path`.
 
-**Platform/shell**: only when `/data/platform` has a real origin — same sequence
-from a branch there, ledger `repo: "mobius-os/mobius"`, same back-to-`main`
-invariant. No origin → be honest: platform contributions need the updated
-platform bootstrap; app contributions still work.
+**Platform/shell**: only when `/data/platform` has a real origin — create the
+review branch with `git -C /data/platform worktree add -b fix/…
+/data/contrib/<record-id>/worktree <base-sha>`, apply only the reviewed source
+diff there, and record that worktree path with `repo: "mobius-os/mobius"`.
+`/data/platform` itself remains on `main`. No origin → be honest: platform
+contributions need the updated platform bootstrap; app contributions still work.
 
 ## PLATFORM CI
 
 For `mobius-os/mobius` PRs, upstream CI runs backend pytest, frontend unit
 `npm test`, `packager-unit`, `core-apps-unit`, `core-apps-sync` via
-`scripts/check-core-apps-sync.sh`, and Playwright e2e.
+`scripts/check-core-apps-sync.sh`, and comprehensive Playwright e2e. Feature and
+fix branch pushes run the cheap jobs; Playwright runs on the PR, main, and
+integration branches. The Contribute checks refresh reports that PR result on
+the record; expect it within the refresh cadence.
 
-Before staging, validate what you can in-container: backend pytest yes;
-`scripts/check-core-apps-sync.sh` yes, with network; frontend unit plus build
-yes. Playwright e2e is not runnable in-container. The Contribute checks refresh
-reports that PR result on the record; expect it within the refresh cadence.
+Before staging, run the cheapest focused checks that cover the changed files.
+Do **not** run Playwright locally by default. The Möbius app container does not
+have Docker, so agents normally diagnose browser failures from the hosted CI
+report. On a Docker-capable contributor host, a CI failure can be reproduced by
+first committing the exact revision, then using the disposable runner with the
+narrowest spec or grep possible:
+
+```bash
+scripts/playwright-local.sh --allow-local-e2e <spec or --grep arguments>
+```
+
+The runner makes a standalone temporary clone, then builds a separate backend,
+database, credentials, ports, and browser session from that same commit. It
+uses one worker and tears everything down. It refuses tracked uncommitted edits
+instead of testing them against an older runtime. Never point Playwright,
+`auth.setup.mjs`, or a preview proxy at the live backend — localhost alone does
+not prove isolation.
 
 ### Commenting on an issue or discussion
 
@@ -356,7 +398,7 @@ gh api graphql -f query='mutation($id: ID!, $body: String!) {
 | **403 "OAuth App access restrictions"** | Org hasn't approved the Möbius OAuth app. Have the partner reconnect with a **`public_repo`-scoped PAT** (Connect card) — safer than full `repo`, which also grants read of the owner's PRIVATE repos through the read passthrough. |
 | **`gh: command not found`** | Platform image too old; a platform update is needed. |
 | **`git push fork` fails right after the fork** | Forks are created async — wait 2s and retry, up to 3×, before treating it as real. |
-| **Push says `workflow` scope is required, but the reviewed diff does not change a workflow** | The reusable fork is stale and lacks an identical workflow file. Current platforms safely sync the fork during Send; on an older platform, update it before retrying. Do not rebase the reviewed PR onto the stale fork. |
+| **Push says `workflow` scope is required, but the reviewed diff does not change a workflow** | The reusable fork is stale and lacks an identical workflow file. Current platforms keep the fork default branch untouched and adapt only the reviewed topic commit; on an older platform, update the fork before retrying. |
 | **Empty search results** | Normal while the ecosystem is young; not an error. |
 
 ---
@@ -388,7 +430,7 @@ curl -s -X PUT "$API_BASE_URL/api/storage/apps/<id>/contributions/<record-id>.js
   "id": "<record-id>", "type": "pr", "repo": "<owner>/<repo>",
   "status": "prepared", "title": "<title>", "branch": "fix/<slug>-<short>",
   "chat_id": "'"$CHAT_ID"'", "created_at": "<ISO>", "updated_at": "<ISO>",
-  "summary": "<one line for the partner>",
+  "summary": "<one plain-language sentence about what improves for people>",
   "plan": {"action": "pr", "repo": "<owner>/<repo>", "title": "<title>",
            "body_draft": "<full PR body, word for word>",
            "branch": "fix/<slug>-<short>", "repo_path": "/data/apps/<slug>",

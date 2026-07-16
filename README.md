@@ -13,21 +13,26 @@ a bug or adds a feature, it can offer to share that change upstream so it
 ships to every Möbius user — but only with your explicit go-ahead on each
 contribution. This app is the dashboard for that loop:
 
-- **Sources** — a fetch-free map of the platform and every installed app.
+- **Repository map** — a fetch-free map of the platform and every installed app.
   Each project keeps two relationships separate: the recorded update source
   versus your live `main`, and the ready/open contribution branches attached
   to that project. Tree-delta counts avoid treating installation bookkeeping
   commits as source changes; staged, unstaged, untracked, and conflicted files
   are shown independently. Filters surface attention, different trees, working
-  files, active PRs, or aligned projects.
-- **Stat tiles** — Merged / Open / Ready at a glance.
+  files, active PRs, or aligned projects. Origin, local main, configured forks,
+  and chained PR branches form one visual topology; installer-managed changes
+  are separated from authored differences. Active PRs for an uninstalled source
+  remain visible as contribution-only repositories; issues and comments stay
+  in the contribution feed rather than being mislabeled as PR branches.
+- **Activity overview** — Merged / Open / Ready in one compact strip.
 - **Connection card** — connect GitHub right here, in the app. Two paths to
   the same server-side credential: the GitHub **device flow** (shown when the
   platform has an OAuth client configured — tap Connect, then enter the
   one-time code at github.com/login/device) and a **classic personal access
-  token** fallback (`public_repo` scope). Once connected it shows "Connected
-  as <login>" with a Disconnect button. On an older platform the card says an
-  update is needed instead.
+  token** fallback (`public_repo` scope). Once connected it becomes a compact
+  status row; optional workflow permission and disconnect controls stay under
+  **Access** until needed. On an older platform the card says an update is
+  needed instead.
 - **Feed**, grouped:
   - **Ready for review** — staged and waiting on your go-ahead. Each card
     shows high-level review context first: repo, branch, diff stat, summary,
@@ -35,10 +40,11 @@ contribution. This app is the dashboard for that loop:
     would go public: the action ("New PR to…", "Comment on…"), the full
     markdown-rendered body draft, and a structured diff only when you ask for
     the excerpt or full patch. **Send PR for review** calls the platform submit
-    endpoint directly; the server recomputes the reviewed branch diff, safely
-    fast-forwards a stale reusable fork, pushes the reviewed branch, opens the
-    PR on GitHub, and records the URL. A diverged fork is left untouched and the
-    send stops with an actionable error. Non-PR records are
+    endpoint directly; the server recomputes the reviewed branch diff and, when
+    a reusable fork is stale, adapts the reviewed topic branch to its existing
+    base without changing the fork's default branch. It then pushes the branch,
+    opens the PR on GitHub, and records the URL. A diverged fork is left
+    untouched and the send stops with an actionable error. Non-PR records are
     review-only for now; **Leave feedback** returns to the chat that prepared
     the record. **Dismiss** marks the record
     abandoned — a compare-and-swap write when the
@@ -54,11 +60,15 @@ contribution. This app is the dashboard for that loop:
     confirmation to publish the enumerated chain parent-first. True stacks
     use dedicated upstream `stack/**` branches and therefore require upstream
     push permission; independent contributions continue through the safer
-    reusable-fork path.
+    reusable-fork path. Incomplete or mismatched chains stay reviewable but
+    cannot be sent. A retry can keep an already-open or draft parent in view;
+    if that parent has merged, Contribute asks the agent to refresh the
+    remaining layers on `main` instead of silently changing the reviewed diff.
   - **Open** — PRs and issues live on GitHub, plus anything the agent is
     submitting right now. State is refreshed on open; the daily background job
     also checks for comments, reviews, and failing checks that need follow-up.
-  - **History** — merged, closed, commented, and abandoned.
+  - **History** — merged, closed, commented, and abandoned, collapsed by
+    default so active work remains the focus.
 
 When a tracked PR becomes merged or closed, Contribute removes only its
 disposable local staging checkout. The ledger record, reviewed diff, reusable
