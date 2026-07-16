@@ -83,9 +83,17 @@ test('problem codes map to short human headlines, unknown falls back to raw', ()
     'This changed since you reviewed it — ask your agent to refresh it',
   )
   assert.equal(
-    problemHeadline('previous_submit_failure'),
-    'The last send did not go through — ask your agent to take another look',
+    problemHeadline('working_changes'),
+    'Unsaved local edits are in the way — your agent can tidy them up',
   )
+  // The map's keys are exactly the backend's _review_status_problem codes
+  // (routes/github.py) — an invented key is dead copy, a missing real code
+  // silently drops its friendly headline.
+  assert.deepEqual(Object.keys(PROBLEM_HEADLINES).sort(), [
+    'branch_moved', 'diff_mismatch', 'invalid_ancestry', 'invalid_plan',
+    'invalid_stack', 'missing_checkout', 'missing_coauthor', 'missing_diff',
+    'missing_diff_hash', 'parent_merged', 'review_changed', 'working_changes',
+  ])
   // Unknown / empty / non-string codes return '' so the caller shows the raw
   // backend message unchanged (lenient read).
   assert.equal(problemHeadline('brand_new_backend_code'), '')

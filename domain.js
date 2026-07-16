@@ -77,15 +77,23 @@ export function statusNarration(rec) {
 // The card leads the alert with this headline and keeps the raw message behind
 // a Details disclosure. An unmapped code returns '' so the caller falls back to
 // the raw message (lenient read — a new backend code still shows something).
+// Keys mirror the exact `code=` set `_review_status_problem` emits in the
+// platform's routes/github.py (verified 2026-07-16); a key that the backend
+// never emits is dead copy, and a real code without a key silently loses its
+// friendly headline. Re-verify against that file when adding entries.
 export const PROBLEM_HEADLINES = {
   branch_moved: 'This changed since you reviewed it — ask your agent to refresh it',
-  head_moved: 'This changed since you reviewed it — ask your agent to refresh it',
-  base_moved: 'The target branch moved on — ask your agent to refresh it',
-  diff_changed: 'This changed since you reviewed it — ask your agent to refresh it',
-  diff_mismatch: 'This changed since you reviewed it — ask your agent to refresh it',
-  worktree_dirty: 'The files changed after review — ask your agent to refresh it',
-  fork_diverged: 'Your GitHub copy has drifted from the original — ask your agent to sort it out',
-  previous_submit_failure: 'The last send did not go through — ask your agent to take another look',
+  review_changed: 'This was edited after you reviewed it — ask your agent to refresh it',
+  diff_mismatch: 'What you reviewed no longer matches what would be sent — ask your agent to refresh it',
+  working_changes: 'Unsaved local edits are in the way — your agent can tidy them up',
+  invalid_ancestry: 'This change no longer lines up with its base — ask your agent to refresh it',
+  parent_merged: 'An earlier change in this chain was merged — ask your agent to refresh this one',
+  invalid_stack: 'This chain of changes is out of order — your agent can restage it',
+  missing_checkout: 'The prepared files for this change are missing — your agent can restage it',
+  missing_coauthor: 'The prepared commit is missing its agent marker — your agent can restage it',
+  missing_diff: 'The reviewed change is incomplete — your agent can restage it',
+  missing_diff_hash: 'The reviewed change is incomplete — your agent can restage it',
+  invalid_plan: 'The prepared review is incomplete — your agent can restage it',
 }
 
 export function problemHeadline(code) {
