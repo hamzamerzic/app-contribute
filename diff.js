@@ -1,127 +1,70 @@
 // Unified-diff parsing for the review card. The renderer stays React-native
-// (text nodes, no injected HTML); this parser only classifies git diff lines so
-// the UI can show file headers, hunks, line numbers, and additions/deletions.
+// (text nodes, no injected HTML); this module turns a git diff into the per-file
+// rows the UI shows (headers, hunks, line numbers, additions/deletions).
+//
+// Line classification is delegated to the platform's canonical diff parser
+// (copied verbatim into parse-unified-diff.js, per "copy, don't import"). The
+// review card's own file/row shape is produced by the thin adapter below, so
+// ContributionCard, FileDiffList, and DiffView keep the shape they render.
+// parseDiffStat (further down) is a separate `git diff --stat` reader with no
+// canonical equivalent and stays as-is.
 
-function cleanDiffPath(path) {
-  const raw = String(path || '').trim()
-  if (!raw || raw === '/dev/null') return ''
-  const unquoted = raw[0] === '"' && raw[raw.length - 1] === '"'
-    ? raw.slice(1, -1).replace(/\\"/g, '"')
-    : raw
-  return unquoted.replace(/^[ab]\//, '')
+import { parseUnifiedDiff as parseCanonicalDiff } from './parse-unified-diff.js'
+
+// Canonical line numbers are a number on the present side and null on the
+// absent side; the card renders '' for the absent side.
+function lineNumber(value) {
+  return typeof value === 'number' ? value : ''
 }
 
-function fileLabel(file) {
-  return file.newPath || file.oldPath || file.header || 'Diff'
+// Flatten canonical hunks into the card's flat row list: a hunk-header row
+// followed by its add/del/context rows. Canonical's 'meta' line type only ever
+// carries "\ No newline at end of file", which the card shows as a note.
+function reviewRows(hunks) {
+  const rows = []
+  for (const hunk of hunks) {
+    rows.push({ kind: 'hunk', content: hunk.header })
+    for (const line of hunk.lines) {
+      if (line.type === 'add' || line.type === 'del' || line.type === 'context') {
+        rows.push({
+          kind: line.type,
+          marker: line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' ',
+          oldNumber: lineNumber(line.oldNo),
+          newNumber: lineNumber(line.newNo),
+          content: line.text,
+        })
+      } else {
+        rows.push({ kind: 'note', content: line.text })
+      }
+    }
+  }
+  return rows
 }
 
-function newFile(header) {
+function toReviewFile(entry) {
+  const oldPath = entry.oldPath || ''
+  const newPath = entry.newPath || ''
+  const rows = reviewRows(entry.hunks)
+  // A binary file carries no hunks; surface it as a note, not an empty panel.
+  if (entry.binary && rows.length === 0) {
+    rows.push({ kind: 'note', content: 'Binary file — not shown as text.' })
+  }
   return {
-    header: header || '',
-    oldPath: '',
-    newPath: '',
-    additions: 0,
-    deletions: 0,
-    rows: [],
+    oldPath,
+    newPath,
+    additions: entry.insertions,
+    deletions: entry.deletions,
+    rows,
+    label: newPath || oldPath || entry.path || 'Diff',
   }
 }
 
+// Parse a unified diff into the review card's per-file shape. Delegating to the
+// canonical parser fixes the class of bug where a hunk-body line whose content
+// begins "-- "/"++ " (a removed SQL comment, a YAML "---") was mistaken for a
+// ---/+++ file header — clobbering the path and dropping the line from counts.
 export function parseUnifiedDiff(input) {
-  const text = String(input || '')
-  if (!text.trim()) return []
-
-  const rawLines = text.split(/\r?\n/)
-  if (rawLines[rawLines.length - 1] === '') rawLines.pop()
-
-  const files = []
-  let current = null
-  let inHunk = false
-  let oldLine = 0
-  let newLine = 0
-
-  function ensureFile() {
-    if (!current) {
-      current = newFile('')
-      files.push(current)
-    }
-    return current
-  }
-
-  for (const raw of rawLines) {
-    const gitHeader = raw.match(/^diff --git (.+?) (.+)$/)
-    if (gitHeader) {
-      current = newFile(raw)
-      current.oldPath = cleanDiffPath(gitHeader[1])
-      current.newPath = cleanDiffPath(gitHeader[2])
-      files.push(current)
-      inHunk = false
-      continue
-    }
-
-    if (raw.startsWith('--- ')) {
-      ensureFile().oldPath = cleanDiffPath(raw.slice(4))
-      continue
-    }
-    if (raw.startsWith('+++ ')) {
-      ensureFile().newPath = cleanDiffPath(raw.slice(4))
-      continue
-    }
-
-    const hunk = raw.match(/^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@(.*)$/)
-    if (hunk) {
-      ensureFile().rows.push({
-        kind: 'hunk',
-        content: raw,
-      })
-      oldLine = Number(hunk[1]) || 0
-      newLine = Number(hunk[2]) || 0
-      inHunk = true
-      continue
-    }
-
-    const file = ensureFile()
-    if (!inHunk) {
-      if (raw) file.rows.push({ kind: 'meta', content: raw })
-      continue
-    }
-
-    if (raw.startsWith('\\')) {
-      file.rows.push({ kind: 'note', content: raw })
-      continue
-    }
-
-    const marker = raw[0] || ' '
-    const content = raw.length > 0 ? raw.slice(1) : ''
-    if (marker === '+') {
-      file.additions += 1
-      file.rows.push({
-        kind: 'add',
-        marker,
-        oldNumber: '',
-        newNumber: newLine++,
-        content,
-      })
-    } else if (marker === '-') {
-      file.deletions += 1
-      file.rows.push({
-        kind: 'del',
-        marker,
-        oldNumber: oldLine++,
-        newNumber: '',
-        content,
-      })
-    } else {
-      file.rows.push({
-        kind: 'context',
-        marker: ' ',
-        oldNumber: oldLine++,
-        newNumber: newLine++,
-        content: marker === ' ' ? content : raw,
-      })
-    }
-  }
-
-  return files.map((file) => ({ ...file, label: fileLabel(file) }))
+  return parseCanonicalDiff(String(input || '')).map(toReviewFile)
 }
 
 // Parse the tail of `git diff --stat` into structured counts. The summary line

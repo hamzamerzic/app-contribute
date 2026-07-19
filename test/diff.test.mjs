@@ -45,6 +45,31 @@ test('parseUnifiedDiff handles new files and no-newline notes', () => {
   assert.equal(files[0].rows.at(-1).kind, 'note')
 })
 
+test('parseUnifiedDiff counts hunk lines whose content begins with -- / ++', () => {
+  // A removed source line "-- old" renders as the body line "--- old" and an
+  // added "++ new" as "+++ new". These must not be read as ---/+++ file
+  // headers: doing so clobbered the path and dropped both lines from the counts.
+  const files = parseUnifiedDiff(`diff --git a/q.sql b/q.sql
+index 111..222 100644
+--- a/q.sql
++++ b/q.sql
+@@ -1,2 +1,2 @@
+--- old comment
++++ new comment
+ unchanged`)
+
+  assert.equal(files.length, 1)
+  assert.equal(files[0].newPath, 'q.sql')
+  assert.equal(files[0].additions, 1)
+  assert.equal(files[0].deletions, 1)
+  assert.deepEqual(
+    files[0].rows
+      .filter((row) => row.kind === 'add' || row.kind === 'del')
+      .map((row) => [row.kind, row.content]),
+    [['del', '-- old comment'], ['add', '++ new comment']],
+  )
+})
+
 test('parseDiffStat reads authoritative totals from the summary line', () => {
   const stat = parseDiffStat(` src/a.js | 4 ++--
  ui/DiffView.jsx | 2 +-
