@@ -51,10 +51,19 @@ export const CSS = `
 /* /mobius-ui:ReducedMotion */
 
 .co-page {
-  flex: 1; min-height: 0; width: min(100%, 720px); margin: 0 auto;
+  flex: 1; min-height: 0; width: min(100%, 1120px); margin: 0 auto;
   padding: 0 20px max(56px, calc(28px + env(safe-area-inset-bottom)));
   overflow-y: auto; overflow-x: hidden;
   overscroll-behavior: contain;
+}
+
+/* The shared header and tabs keep the contribution feed's reading measure even
+   when Projects uses the wider canvas. Their viewport position therefore stays
+   fixed when the owner switches views. */
+.co-header,
+.co-tabs,
+.co-contributions-view {
+  width: min(100%, 680px); margin-inline: auto;
 }
 
 .co-header {
@@ -77,15 +86,15 @@ export const CSS = `
 
 .co-offline-note { display: block; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
 
-/* Sources / Contributions top-level split. Sources gets a wider desktop
-   canvas; Contributions keeps the original 680px reading measure. */
+/* Sources / Contributions top-level split. The page shell is always wide;
+   Projects alone fills it while Contributions stays at a 680px reading measure. */
 .co-page.is-sources {
-  width: min(100%, 1120px); padding-bottom: 12px;
+  padding-bottom: 12px;
   display: flex; flex-direction: column; overflow: hidden;
 }
 .co-tabs {
   display: flex; align-items: stretch; gap: 24px;
-  margin: 4px 0 20px; padding: 0;
+  margin: 4px auto 20px; padding: 0;
   border-bottom: 1px solid var(--border);
 }
 .co-tabs button {
@@ -99,6 +108,9 @@ export const CSS = `
 .co-tabs button.is-active::after {
   content: ''; position: absolute; left: 0; right: 0; bottom: -1px;
   height: 2px; border-radius: 2px 2px 0 0; background: var(--accent);
+}
+@media (hover: hover) {
+  .co-tabs button:hover { color: var(--text); }
 }
 .co-tabs button span {
   display: inline-flex; align-items: center; justify-content: center;
@@ -165,6 +177,9 @@ export const CSS = `
 .co-source-filter.is-active {
   background: var(--surface); color: var(--text);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 9%, transparent);
+}
+@media (hover: hover) {
+  .co-source-filter:hover { color: var(--text); }
 }
 .co-adapted-note { flex: 0 0 auto; color: var(--muted); font-size: 10.5px; }
 .co-source-no-results { padding: 36px 16px; text-align: center; color: var(--muted); font-size: 13px; }
@@ -456,6 +471,24 @@ export const CSS = `
 .co-btn-quiet { border-color: transparent; background: transparent; color: var(--accent); }
 .co-btn-sm { min-height: 44px; padding: 9px 12px; font-size: 13px; }
 .co-btn-block { width: 100%; }
+@media (hover: hover) {
+  .co-btn:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
+    background: var(--surface2, var(--surface));
+  }
+  .co-btn-primary:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--accent-hover, var(--accent)) 90%, var(--text));
+    background: color-mix(in srgb, var(--accent-hover, var(--accent)) 90%, var(--text));
+  }
+  .co-btn-danger:not(:disabled):hover {
+    border-color: color-mix(in srgb, var(--danger) 62%, var(--border));
+    background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  }
+  .co-btn-quiet:not(:disabled):hover {
+    border-color: transparent;
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+}
 /* /mobius-ui:Button */
 
 /* mobius-ui:Input v1 — app-owned copy; library candidate. */
@@ -466,7 +499,6 @@ export const CSS = `
   font-family: var(--mono, var(--font)); font-size: 16px;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
-.co-conn-input:focus,
 .co-conn-input:focus-visible {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-dim);
@@ -542,12 +574,6 @@ export const CSS = `
 .co-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 13px; padding: 14px 15px; margin-top: 9px;
-}
-.co-card.is-clickable { cursor: pointer; }
-@media (hover: hover) {
-  .co-card.is-clickable:hover {
-    border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-  }
 }
 /* /mobius-ui:Card */
 
@@ -1047,28 +1073,13 @@ export const CSS = `
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   color: var(--accent);
 }
-.co-empty-title { font-size: 17px; font-weight: 700; color: var(--text); }
+.co-empty-title { margin: 0; font-size: 17px; font-weight: 700; color: var(--text); }
 .co-empty-text { margin: 0; font-size: 14px; line-height: 1.6; }
 /* /mobius-ui:Empty */
 
-/* How to contribute: the initiation affordance. In the empty state it stacks
-   centered under the invitation; the compact variant rides the top of a
-   populated feed as a bordered card the width of the feed. */
-.co-howto {
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  margin-top: 6px;
-}
-.co-howto-text { margin: 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
-.co-howto-note { margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--muted); }
-.co-howto.is-compact {
-  align-items: flex-start; text-align: left; gap: 9px;
-  margin: 16px 0 0; padding: 13px 14px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
-}
-
 @media (max-width: 760px) {
   .co-page.is-sources {
-    width: min(100%, 680px); padding-bottom: 32px;
+    padding-bottom: 32px;
     display: block; overflow-y: auto;
   }
   .co-sources { display: block; }

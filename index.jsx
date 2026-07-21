@@ -57,23 +57,21 @@ const CONTRIBUTION_VIEWS = ['contributions', 'sources']
 // The app's own icon, with a lettered fallback for installs whose icon route
 // 404s. Mirrors the App Store header pattern.
 function Header({ appId, fromCache, omittedCount }) {
+  const [iconFailed, setIconFailed] = useState(false)
   return (
     <header className="co-header">
-      <img
-        src={`/api/apps/${appId}/icon?size=64`}
-        alt=""
-        width={34}
-        height={34}
-        className="co-brand-icon"
-        onError={(e) => {
-          e.currentTarget.style.display = 'none'
-          const f = e.currentTarget.nextElementSibling
-          if (f) f.style.display = 'flex'
-        }}
-      />
-      <span className="co-brand-fallback" style={{ display: 'none' }} aria-hidden="true">
-        C
-      </span>
+      {iconFailed ? (
+        <span className="co-brand-fallback" aria-hidden="true">C</span>
+      ) : (
+        <img
+          src={`/api/apps/${appId}/icon?size=64`}
+          alt=""
+          width={34}
+          height={34}
+          className="co-brand-icon"
+          onError={() => setIconFailed(true)}
+        />
+      )}
       <div>
         <h1 className="co-title">Contribute</h1>
         <span className="co-subtitle">Review and share Möbius improvements</span>
@@ -90,57 +88,19 @@ function Header({ appId, fromCache, omittedCount }) {
   )
 }
 
-// The short draft that seeds a fresh chat when the owner taps "Start a
-// contribution". Kept to one calm sentence — the agent takes it from here.
-const CONTRIBUTE_DRAFT =
-  'Share the improvement you just made upstream so other Möbius users get it too.'
-
-// This app is review-only: there is no button here that starts a contribution
-// on its own — the way to begin is to tell your agent in a chat. This makes
-// that legible and one tap away. The button opens a fresh chat in the shell
-// with the draft above (the same open-chat channel Feedback uses, minus a
-// chatId). `compact` rides the top of a populated feed; the full form anchors
-// the empty state.
-function HowToContribute({ onStart, compact = false }) {
-  const [note, setNote] = useState('')
-  function start() {
-    const outcome = (typeof onStart === 'function' && onStart(CONTRIBUTE_DRAFT)) || {}
-    if (!outcome.ok) {
-      setNote('Open Contribute inside Möbius to start a contribution.')
-    }
-  }
-  return (
-    <div className={'co-howto' + (compact ? ' is-compact' : '')}>
-      <p className="co-howto-text">
-        To contribute, tell your agent in any chat to share a fix upstream — it
-        prepares the change here for you to review.
-      </p>
-      <button
-        type="button"
-        className="co-btn co-btn-primary co-btn-sm"
-        onClick={start}
-      >
-        Start a contribution
-      </button>
-      {note ? <p className="co-howto-note" role="status">{note}</p> : null}
-    </div>
-  )
-}
-
 // Sells the loop when the ledger is empty. Deliberately connection-agnostic:
 // the ConnectionCard directly above already says whether GitHub is wired up, so
-// this stays a single clear invitation rather than branching on state.
-function EmptyState({ onStart }) {
+// this stays focused on the review task rather than implying that contributions
+// can be created from this app.
+function EmptyState() {
   return (
     <div className="co-empty">
       <div className="co-empty-mark">{MERGE_MARK}</div>
-      <div className="co-empty-title">No contributions yet</div>
+      <h2 className="co-empty-title">No contributions to review</h2>
       <p className="co-empty-text">
-        Your agent can improve Möbius for everyone. When it fixes an app or the
-        platform, ask it to share the change upstream — approved contributions
-        show up here, from prepared all the way to merged.
+        Changes your agent prepares for upstream review will appear here. You
+        can inspect each change before anything is shared publicly.
       </p>
-      <HowToContribute onStart={onStart} />
     </div>
   )
 }
@@ -429,24 +389,6 @@ export default function ContributeApp({ appId, token }) {
     return { error: outcome.error || 'Could not submit this PR stack.' }
   }, [appId, token, applyRecordUpdates, refreshReviewStatus])
 
-  // Start a contribution = open a BRAND-NEW chat in the shell with a short
-  // pre-filled draft. Same postMessage channel as onFeedback, minus a chatId,
-  // so the shell begins a fresh chat instead of returning to an existing one.
-  // Standalone (no parent frame) has nowhere to send it — the caller shows a
-  // "open Contribute inside Möbius" note. Also used by dead-end affordances
-  // (the unsupported connection card) that need a fresh chat, not a source one.
-  const onStartContribution = useCallback((draft) => {
-    if (window.parent === window) {
-      return { ok: false, reason: 'standalone' }
-    }
-    const text = draft || CONTRIBUTE_DRAFT
-    window.parent.postMessage(
-      { type: 'moebius:open-chat', draft: text },
-      window.location.origin)
-    window.mobius?.signal?.('contribution_start_opened')
-    return { ok: true }
-  }, [])
-
   // Feedback = return to the chat that created the contribution, with a small
   // draft already pointing at the exact record. Attention follow-ups can pass
   // a more specific draft. Older records may not have
@@ -516,8 +458,8 @@ export default function ContributeApp({ appId, token }) {
   return (
     <div className="co-root">
       <style>{CSS}</style>
-      <div ref={pageRef} className={'co-page' + (view === 'sources' ? ' is-sources' : '')}>
-      <Header appId={appId} fromCache={fromCache} omittedCount={omittedCount} />
+      <main ref={pageRef} className={'co-page' + (view === 'sources' ? ' is-sources' : '')}>
+        <Header appId={appId} fromCache={fromCache} omittedCount={omittedCount} />
         <nav className="co-tabs" role="tablist" aria-label="Contribute views">
           <button
             type="button"
@@ -571,29 +513,25 @@ export default function ContributeApp({ appId, token }) {
               conn={conn}
               token={token}
               onChanged={refreshConnection}
-              onAskAgent={onStartContribution}
             />
             {/* Hold the feed area blank until the first load resolves so an empty
                 ledger doesn't flash the sell-the-loop copy before data arrives. */}
-            {loading ? null : isEmpty ? <EmptyState onStart={onStartContribution} /> : (
-              <>
-                <HowToContribute onStart={onStartContribution} compact />
-                <Feed
-                  groups={groups}
-                  records={records}
-                  reviewStatus={reviewStatus}
-                  onSend={onSend}
-                  onSendStack={onSendStack}
-                  onFeedback={onFeedback}
-                  onDismiss={onDismiss}
-                  onRestore={onRestore}
-                  loadDiff={loadFullDiff}
-                />
-              </>
+            {loading ? null : isEmpty ? <EmptyState /> : (
+              <Feed
+                groups={groups}
+                records={records}
+                reviewStatus={reviewStatus}
+                onSend={onSend}
+                onSendStack={onSendStack}
+                onFeedback={onFeedback}
+                onDismiss={onDismiss}
+                onRestore={onRestore}
+                loadDiff={loadFullDiff}
+              />
             )}
           </div>
         )}
-      </div>
+      </main>
     </div>
   )
 }

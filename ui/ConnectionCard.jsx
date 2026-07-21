@@ -22,7 +22,7 @@ import { Icon } from './Icons.jsx'
 const TOKEN_CREATE_URL =
   'https://github.com/settings/tokens/new?scopes=public_repo&description=Mobius'
 
-export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
+export function ConnectionCard({ conn, token, onChanged }) {
   // Device-flow machine: idle | starting | pending | complete. PAT submission
   // is independent state so the token form works even while a flow is pending.
   const [flow, setFlow] = useState('idle')
@@ -42,9 +42,7 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
   // The classic-PAT form is collapsed behind a disclosure when the device flow
   // is available, so the default connect view is just the one-tap button.
   const [patOpen, setPatOpen] = useState(false)
-  // Note shown if a dead-end "ask your agent" tap has nowhere to send (the app
-  // is open standalone, outside the Möbius shell).
-  const [askNote, setAskNote] = useState('')
+  const patInputRef = useRef(null)
   const pollRef = useRef(null)
   const pollGenRef = useRef(0)
 
@@ -170,7 +168,11 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
   const submitPat = useCallback(async (e) => {
     e.preventDefault()
     const value = pat.trim()
-    if (!value) return
+    if (!value) {
+      setPatError('Enter a GitHub personal access token.')
+      patInputRef.current?.focus()
+      return
+    }
     setPatError('')
     setPatSubmitting(true)
     window.mobius?.signal?.('github_connect_started', { method: 'pat' })
@@ -221,32 +223,15 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
   if (state === 'unknown') return null
 
   if (state === 'unsupported') {
-    function askAgentToUpdate() {
-      const outcome = (typeof onAskAgent === 'function' && onAskAgent(
-        'My Möbius platform is too old to connect GitHub for contributions. ' +
-        'Please update the platform to a version that supports it, then help me ' +
-        'connect my account.'
-      )) || {}
-      if (!outcome.ok) setAskNote('Open Contribute inside Möbius to reach your agent.')
-    }
     return (
       <div className="co-conn">
         <span className="co-conn-dot is-warn" aria-hidden="true" />
         <div className="co-conn-body">
           <p className="co-conn-title">Platform update needed</p>
           <p className="co-conn-text">
-            Your Möbius platform predates GitHub support. Ask your agent to
-            update the platform, then you can connect GitHub and start
-            contributing upstream.
+            This Möbius version predates GitHub support. Update Möbius, then
+            return here to connect GitHub.
           </p>
-          {typeof onAskAgent === 'function' ? (
-            <div className="co-conn-actions">
-              <button type="button" className="co-btn co-btn-sm" onClick={askAgentToUpdate}>
-                Ask agent to update
-              </button>
-            </div>
-          ) : null}
-          {askNote ? <p className="co-conn-error" role="status">{askNote}</p> : null}
         </div>
       </div>
     )
@@ -324,10 +309,14 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
                     {workflowFlow && flow === 'starting' ? 'Starting…' : 'Enable workflow access'}
                   </button>
                 )}
-                {workflowFlow && deviceError && <p className="co-conn-error">{deviceError}</p>}
+                {workflowFlow && deviceError && (
+                  <p className="co-conn-error" role="status" aria-live="polite">{deviceError}</p>
+                )}
               </div>
             )}
-            {disconnectError && <p className="co-conn-error">{disconnectError}</p>}
+            {disconnectError && (
+              <p className="co-conn-error" role="status" aria-live="polite">{disconnectError}</p>
+            )}
             <div className="co-conn-actions">
               {disconnectConfirm ? (
                 <>
@@ -381,23 +370,32 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
       </p>
       <div className="co-conn-form">
         <input
+          ref={patInputRef}
           className="co-conn-input"
           type="password"
+          name="github-token"
           value={pat}
           onChange={(e) => setPat(e.target.value)}
           placeholder="ghp_…"
           autoComplete="off"
+          spellCheck={false}
+          aria-invalid={!!patError}
+          aria-describedby={patError ? 'co-github-token-error' : undefined}
           aria-label="GitHub personal access token"
         />
         <button
           className="co-btn co-btn-primary co-btn-block"
           type="submit"
-          disabled={patSubmitting || !pat.trim()}
+          disabled={patSubmitting}
         >
           {patSubmitting ? 'Connecting…' : 'Connect with token'}
         </button>
       </div>
-      {patError && <p className="co-conn-error">{patError}</p>}
+      {patError && (
+        <p id="co-github-token-error" className="co-conn-error" role="status" aria-live="polite">
+          {patError}
+        </p>
+      )}
     </form>
   )
   return (
@@ -446,7 +444,9 @@ export function ConnectionCard({ conn, token, onChanged, onAskAgent }) {
               {flow === 'starting' ? 'Starting…' : 'Connect with GitHub'}
             </button>
           )}
-          {deviceError && <p className="co-conn-error">{deviceError}</p>}
+          {deviceError && (
+            <p className="co-conn-error" role="status" aria-live="polite">{deviceError}</p>
+          )}
         </div>
       )}
 

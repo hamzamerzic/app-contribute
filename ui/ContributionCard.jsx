@@ -142,10 +142,6 @@ function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
   )
 }
 
-function isInteractiveTarget(target) {
-  return !!target?.closest?.('button, a, input, textarea, select, [role="button"]')
-}
-
 function attentionTitle(attention) {
   return attention?.title || ATTENTION_HEADLINE
 }
@@ -434,8 +430,12 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
           {sendElapsed >= 5 ? ` · ${sendElapsed}s elapsed` : '…'}
         </p>
       )}
-      {sendNote && <p className="co-review-note">{sendNote}</p>}
-      {note && <p className="co-review-error">{note}</p>}
+      {sendNote && (
+        <p className="co-review-note" role="status" aria-live="polite">{sendNote}</p>
+      )}
+      {note && (
+        <p className="co-review-error" role="status" aria-live="polite">{note}</p>
+      )}
     </>
   )
 }
@@ -477,7 +477,9 @@ function UndropAction({ rec, onRestore }) {
       >
         {restoring ? 'Undropping…' : 'Undrop'}
       </button>
-      {note && <p className="co-review-error">{note}</p>}
+      {note && (
+        <p className="co-review-error" role="status" aria-live="polite">{note}</p>
+      )}
     </div>
   )
 }
@@ -504,9 +506,8 @@ export function ContributionCard({
   const [expanded, setExpanded] = useState(false)
 
   // Reflection engagement signal: fire once each time the review opens, never
-  // on collapse. `expanded` only ever goes true for a plan card (both the
-  // Review toggle and the whole-card tap gate on hasPlan), so this is
-  // inherently scoped to real reviews and captures either open route.
+  // on collapse. `expanded` only ever goes true for a plan card, so this is
+  // inherently scoped to real reviews.
   useEffect(() => {
     if (expanded) window.mobius?.signal?.('contribution_reviewed', { id: rec.id })
   }, [expanded])
@@ -527,28 +528,9 @@ export function ContributionCard({
     )
   const hasPlan = reviewable && rec.plan && typeof rec.plan === 'object'
   const displayTitle = hasPlan && rec.summary ? rec.summary : title
-  const wholeCardTarget = hasLink || hasPlan
-
-  function openCardTarget() {
-    if (hasPlan) {
-      setExpanded(true)
-      return
-    }
-    if (hasLink) {
-      window.open(rec.url, '_blank', 'noopener,noreferrer')
-    }
-  }
-
-  function handleCardClick(event) {
-    if (!wholeCardTarget || isInteractiveTarget(event.target)) return
-    openCardTarget()
-  }
 
   return (
-    <div
-      className={`co-card${wholeCardTarget ? ' is-clickable' : ''}${reviewOnly ? ' is-stack-layer' : ''}`}
-      onClick={handleCardClick}
-    >
+    <div className={`co-card${reviewOnly ? ' is-stack-layer' : ''}`}>
       <div className="co-card-top">
         {hasLink ? (
           <a

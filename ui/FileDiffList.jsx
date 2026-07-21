@@ -181,7 +181,7 @@ export function FileDiffList({ rec, loadDiff }) {
 
   if (data.mode === 'loading') {
     return (
-      <div className="co-files is-loading">
+      <div className="co-files is-loading" role="status" aria-live="polite">
         <div className="co-files-head">
           <span className="co-files-count">Loading changes…</span>
         </div>

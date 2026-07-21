@@ -216,7 +216,15 @@ export function ContributionStack({
           </button>
         </div>
       )}
-      {note && <p className={note.includes('opened') ? 'co-review-note' : 'co-review-error'}>{note}</p>}
+      {note && (
+        <p
+          className={note.includes('opened') ? 'co-review-note' : 'co-review-error'}
+          role="status"
+          aria-live="polite"
+        >
+          {note}
+        </p>
+      )}
     </article>
   )
 }
