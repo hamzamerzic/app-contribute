@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  attachSourceProjects,
   contributionRelationship,
+  projectAgentAction,
   projectMatchesFilter,
   projectStatus,
   recordBranch,
@@ -22,6 +22,8 @@ function countLabel(value, singular, plural = singular + 's') {
 
 function localFlowStatus(project) {
   if (project.kind === 'external') return { label: 'Not installed', tone: 'quiet' }
+  if (project.builtHere) return { label: 'Built here', tone: 'accent' }
+  if (project.state === 'local_only') return { label: 'No shared source', tone: 'warn' }
   if (!project.available) return { label: 'Not tracked', tone: 'quiet' }
   if (project.state === 'conflict') return { label: 'Update conflict', tone: 'danger' }
   if (project.workingFiles > 0) return { label: 'Being edited', tone: 'warn' }
@@ -90,6 +92,36 @@ function ProjectFlow({ project }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function shortCommit(value) {
+  return typeof value === 'string' && value ? value.slice(0, 7) : 'Unavailable'
+}
+
+function ProjectPosition({ project }) {
+  const sharedSha = project.origin?.sha || project.base_sha
+  const sharedRef = project.origin?.ref || project.base_ref || 'Not configured'
+  return (
+    <details className="co-position-details">
+      <summary>
+        <span>Technical details</span>
+        <Icon name="chevron" size={15} />
+      </summary>
+      <dl>
+        <div><dt>Your branch</dt><dd><code>{project.detached ? 'Detached' : project.branch || 'Unknown'}</code></dd></div>
+        <div><dt>Your commit</dt><dd><code>{shortCommit(project.head_sha)}</code></dd></div>
+        {project.state !== 'local_only' ? (
+          <>
+            <div><dt>Compared with</dt><dd><code>{sharedRef}</code></dd></div>
+            <div><dt>Shared commit</dt><dd><code>{shortCommit(sharedSha)}</code></dd></div>
+          </>
+        ) : null}
+        {project.canonical_repo ? (
+          <div><dt>Repository</dt><dd><code>{project.canonical_repo}</code></dd></div>
+        ) : null}
+      </dl>
+    </details>
   )
 }
 
@@ -277,21 +309,32 @@ function ProjectFileChanges({ project }) {
   )
 }
 
-function ProjectDetail({ project }) {
+function ProjectDetail({ project, onAskAgent }) {
+  const [handoffNote, setHandoffNote] = useState('')
   const status = projectStatus(project)
-  const overview = project.kind === 'external'
-    ? 'This project is not installed here, but it still has a contribution in review.'
-    : project.state === 'conflict'
-      ? 'An update needs attention before this project can move forward.'
-      : project.workingFiles > 0
-        ? 'This project is currently being edited in your Möbius.'
-        : project.originBehind > 0 && project.originAhead > 0
-          ? 'Both your version and the shared version have changed.'
-          : project.originBehind > 0
-            ? 'A newer shared version is available.'
-            : project.different
-              ? 'Your Möbius includes changes that are not in the shared version.'
-              : 'Your version matches the shared source.'
+  const overview = project.builtHere
+    ? 'This app was built on your Möbius and does not have a shared GitHub repository yet.'
+    : project.state === 'local_only'
+      ? 'This project has a GitHub repository, but no shared update source is configured here.'
+      : project.kind === 'external'
+        ? 'This project is not installed here, but it still has a contribution in review.'
+        : project.state === 'conflict'
+          ? 'An update needs attention before this project can move forward.'
+          : project.workingFiles > 0
+            ? 'This project is currently being edited in your Möbius.'
+            : project.originBehind > 0 && project.originAhead > 0
+              ? 'Both your version and the shared version have changed.'
+              : project.originBehind > 0
+                ? 'A newer shared version is available.'
+                : project.different
+                  ? 'Your Möbius includes changes that are not in the shared version.'
+                  : 'Your version matches the shared source.'
+  const agentAction = projectAgentAction(project)
+
+  function askAgent() {
+    const outcome = onAskAgent?.(project, agentAction) || {}
+    setHandoffNote(outcome.ok ? '' : 'Open Contribute inside Möbius to ask your agent.')
+  }
   return (
     <article className="co-source-detail">
       <header className="co-source-detail-head">
@@ -302,10 +345,30 @@ function ProjectDetail({ project }) {
         <span className={'co-source-status tone-' + status.tone}>{status.label}</span>
       </header>
       <p className="co-source-overview-copy">{overview}</p>
-      <ProjectFlow project={project} />
+      {project.state === 'local_only' ? (
+        <div className="co-local-position">
+          <strong>{project.builtHere ? 'Only on this Möbius' : 'No shared update source'}</strong>
+          <span>{project.builtHere
+            ? 'Publishing gives the app a GitHub home so it can be backed up or shared.'
+            : 'The GitHub repository exists, but Möbius has no shared version to compare against.'}</span>
+        </div>
+      ) : <ProjectFlow project={project} />}
+      {agentAction ? (
+        <div className="co-source-action">
+          <div>
+            <strong>Continue with your agent</strong>
+            <span>A new chat opens with this project already identified.</span>
+          </div>
+          <button type="button" className="co-btn co-btn-primary co-btn-sm" onClick={askAgent}>
+            {agentAction.label}
+          </button>
+          {handoffNote ? <p role="status">{handoffNote}</p> : null}
+        </div>
+      ) : null}
       <PullRequestMap project={project} />
       <ProjectFileChanges key={project.key} project={project} />
-      {project.kind !== 'external' && !project.available ? (
+      <ProjectPosition project={project} />
+      {project.kind !== 'external' && !project.available && project.state !== 'local_only' ? (
         <div className="co-source-unavailable">No inspectable local source is available.</div>
       ) : null}
     </article>
@@ -315,6 +378,8 @@ function ProjectDetail({ project }) {
 function ProjectRow({ project, selected, onSelect }) {
   const status = projectStatus(project)
   const facts = []
+  if (project.builtHere) facts.push('Not on GitHub yet')
+  else if (project.state === 'local_only') facts.push('No shared update source')
   if (project.workingFiles) facts.push('Being edited')
   if (project.originBehind) facts.push('Update available')
   if (project.authoredFiles) facts.push('Changed here')
@@ -340,6 +405,23 @@ function ProjectRow({ project, selected, onSelect }) {
   )
 }
 
+function ProjectGroup({ label, projects, selectedKey, onSelect }) {
+  if (!projects.length) return null
+  return (
+    <div className="co-source-group">
+      {label ? <div className="co-source-group-label">{label}</div> : null}
+      {projects.map((project) => (
+        <ProjectRow
+          key={project.key}
+          project={project}
+          selected={project.key === selectedKey}
+          onSelect={onSelect}
+        />
+      ))}
+    </div>
+  )
+}
+
 function LoadingState() {
   return (
     <div className="co-source-loading" role="status">
@@ -349,18 +431,14 @@ function LoadingState() {
   )
 }
 
-export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) {
+export function SourceMap({ snapshot, projects, conn, loading, error, onRetry, focusRequest, onAskAgent }) {
   const [filter, setFilter] = useState('all')
-  const projects = useMemo(
-    () => attachSourceProjects(snapshot, records),
-    [snapshot, records],
-  )
   const filtered = useMemo(
     () => projects.filter((project) => projectMatchesFilter(project, filter)),
     [projects, filter],
   )
-  const [selected, setSelected] = useState('platform')
-  const [mobileOpen, setMobileOpen] = useState(false)
+  const [selected, setSelected] = useState(() => focusRequest?.key || 'platform')
+  const [mobileOpen, setMobileOpen] = useState(() => !!focusRequest?.key)
   const listScrollRef = useRef(0)
 
   function pageScroller() {
@@ -390,7 +468,15 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) 
       setSelected(filtered[0].key)
     }
   }, [filtered, selected])
+  useEffect(() => {
+    if (!focusRequest?.key || !projects.some((project) => project.key === focusRequest.key)) return
+    setFilter('all')
+    setSelected(focusRequest.key)
+    setMobileOpen(true)
+  }, [focusRequest, projects])
   const selectedProject = filtered.find((project) => project.key === selected) || filtered[0]
+  const builtHere = filtered.filter((project) => project.builtHere)
+  const tracked = filtered.filter((project) => !project.builtHere)
 
   if (loading && !snapshot) return <LoadingState />
   if (error && !snapshot) {
@@ -418,8 +504,7 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) 
       <div className="co-sources-head">
         <div>
           <h2 id="co-sources-title">Where changes live</h2>
-          <p className="co-sources-intro">A developer's view of the repositories behind your apps.</p>
-          <p>See which projects differ here and which changes are being shared.</p>
+          <p className="co-sources-intro">See what changed here, what changed in the shared version, and what is ready to share.</p>
         </div>
         <div className="co-sources-fresh">
           {compared && <span>Checked {compared}</span>}
@@ -464,21 +549,25 @@ export function SourceMap({ snapshot, records, conn, loading, error, onRetry }) 
       ) : (
         <div className={'co-source-layout' + (mobileOpen ? ' is-mobile-open' : '')}>
           <div className="co-source-list">
-            {filtered.map((project) => (
-              <ProjectRow
-                key={project.key}
-                project={project}
-                selected={project.key === selectedProject?.key}
-                onSelect={openProject}
-              />
-            ))}
+            <ProjectGroup
+              label={builtHere.length ? 'Platform and installed apps' : ''}
+              projects={tracked}
+              selectedKey={selectedProject?.key}
+              onSelect={openProject}
+            />
+            <ProjectGroup
+              label="Built here"
+              projects={builtHere}
+              selectedKey={selectedProject?.key}
+              onSelect={openProject}
+            />
           </div>
           {selectedProject && (
             <aside className="co-source-desktop-detail">
               <button type="button" className="co-map-back" onClick={closeProject}>
                 <span aria-hidden="true">←</span> All projects
               </button>
-              <ProjectDetail project={selectedProject} />
+              <ProjectDetail key={selectedProject.key} project={selectedProject} onAskAgent={onAskAgent} />
             </aside>
           )}
         </div>

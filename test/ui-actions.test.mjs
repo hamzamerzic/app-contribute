@@ -6,6 +6,8 @@ const cardSource = readFileSync(new URL('../ui/ContributionCard.jsx', import.met
 const stackSource = readFileSync(new URL('../ui/ContributionStack.jsx', import.meta.url), 'utf8')
 const appSource = readFileSync(new URL('../index.jsx', import.meta.url), 'utf8')
 const connectionSource = readFileSync(new URL('../ui/ConnectionCard.jsx', import.meta.url), 'utf8')
+const sourceMapSource = readFileSync(new URL('../ui/SourceMap.jsx', import.meta.url), 'utf8')
+const sourceOverviewSource = readFileSync(new URL('../ui/SourceOverview.jsx', import.meta.url), 'utf8')
 const themeSource = readFileSync(new URL('../theme.js', import.meta.url), 'utf8')
 
 test('send actions keep a visible label instead of relying on the icon alone', () => {
@@ -20,10 +22,12 @@ test('single and stacked sends expose elapsed progress to assistive technology',
   }
 })
 
-test('the review app does not offer an unreliable contribution-start action', () => {
-  for (const source of [appSource, connectionSource]) {
-    assert.doesNotMatch(source, /Start a contribution|onStartContribution|onAskAgent/)
-  }
+test('agent handoffs use a new project-specific chat instead of an invalid open-chat event', () => {
+  assert.match(appSource, /type: 'moebius:new-chat'/)
+  assert.doesNotMatch(appSource, /type: 'moebius:open-chat', draft: action\.draft/)
+  assert.match(sourceMapSource, /A new chat opens with this project already identified\./)
+  assert.match(sourceOverviewSource, /Changes to look at/)
+  assert.doesNotMatch(connectionSource, /onAskAgent/)
   assert.match(appSource, /No contributions to review/)
 })
 

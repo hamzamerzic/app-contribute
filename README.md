@@ -13,6 +13,10 @@ a bug or adds a feature, it can offer to share that change upstream so it
 ships to every Möbius user — but only with your explicit go-ahead on each
 contribution. This app is the dashboard for that loop:
 
+- **Opening summary** — only projects with something useful to notice appear:
+  local edits, committed source differences, shared updates, conflicts, unusual
+  branches, or apps built only on this Möbius. Aligned projects stay quiet.
+  Selecting a row opens that project's full position and file detail.
 - **Repository map** — a fetch-free map of the platform and every installed app.
   Each project keeps two relationships separate: the recorded update source
   versus your live `main`, and the ready/open contribution branches attached
@@ -23,7 +27,14 @@ contribution. This app is the dashboard for that loop:
   and chained PR branches form one visual topology; installer-managed changes
   are separated from authored differences. Active PRs for an uninstalled source
   remain visible as contribution-only repositories; issues and comments stay
-  in the contribution feed rather than being mislabeled as PR branches.
+  in the contribution feed rather than being mislabeled as PR branches. Apps
+  built locally without a GitHub source sit in a separate **Built here** group
+  at the bottom.
+- **Agent handoffs** — project detail can open a new chat already drafted for
+  the situation: prepare local changes for review, explain an available update,
+  resolve a two-sided change safely, or publish a locally built app. Publishing
+  prompts explicitly ask the agent to confirm the repository name and visibility
+  before creating or pushing anything public.
 - **Activity overview** — Merged / Open / Ready in one compact strip.
 - **Connection card** — connect GitHub right here, in the app. Two paths to
   the same server-side credential: the GitHub **device flow** (shown when the

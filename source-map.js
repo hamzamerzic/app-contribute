@@ -22,10 +22,13 @@ export function attachSourceProjects(snapshot, records) {
   const base = []
   if (snapshot?.platform) base.push(snapshot.platform)
   if (Array.isArray(snapshot?.apps)) {
-    // The map is about real Git relationships. Local-only apps have no origin,
-    // fork, or branch topology to explain, so including them as "Not tracked"
-    // adds noise and makes the repository count misleading.
-    base.push(...snapshot.apps.filter((project) => repoKey(project?.canonical_repo)))
+    // A locally built app has no shared repository yet, but it is exactly the
+    // kind of work an owner may want help publishing. Keep it in the map and
+    // sort it into a quiet "Built here" group instead of mislabelling it as a
+    // broken tracked project.
+    base.push(...snapshot.apps.filter((project) => (
+      repoKey(project?.canonical_repo) || project?.state === 'local_only'
+    )))
   }
   const active = (records || []).filter(activeContribution)
   const byRepo = new Map()
@@ -63,6 +66,9 @@ export function attachSourceProjects(snapshot, records) {
   }
 
   return projects.sort((a, b) => {
+    const aBuiltHere = a.builtHere
+    const bBuiltHere = b.builtHere
+    if (aBuiltHere !== bBuiltHere) return aBuiltHere ? 1 : -1
     if (a.kind === 'platform' && b.kind !== 'platform') return -1
     if (b.kind === 'platform' && a.kind !== 'platform') return 1
     if (a.attention !== b.attention) return a.attention ? -1 : 1
@@ -86,6 +92,9 @@ function decorateProject(project, contributions) {
   const different = authoredFiles > 0
   const forks = projectForks(project, contributions)
   const contributionAttention = contributions.some((rec) => rec.needs_attention)
+  const builtHere = project?.kind === 'app'
+    && project?.state === 'local_only'
+    && !repoKey(project?.canonical_repo)
   const attention = (
     project?.state === 'conflict' ||
     project?.state === 'diverged' ||
@@ -109,6 +118,7 @@ function decorateProject(project, contributions) {
     forks,
     workingFiles,
     attention,
+    builtHere,
   }
 }
 
@@ -158,13 +168,16 @@ export function sourceSummary(projects) {
 
 export function projectMatchesFilter(project, filter) {
   if (filter === 'attention') return project.attention
-  if (filter === 'changed') return project.different || project.workingFiles > 0
+  if (filter === 'changed') {
+    return project.state === 'local_only' || project.different || project.workingFiles > 0
+  }
   if (filter === 'shared') return project.contributions.length > 0 || project.forks.length > 0
   return true
 }
 
 export function projectStatus(project) {
   if (project.kind === 'external') return { label: 'Contribution only', tone: 'quiet' }
+  if (project.builtHere) return { label: 'Built here', tone: 'accent' }
   if (!project.available) return { label: 'Not tracked', tone: 'quiet' }
   if (project.state === 'conflict') return { label: 'Update conflict', tone: 'danger' }
   if (project.contributions.some((rec) => rec.needs_attention)) {
@@ -186,8 +199,160 @@ export function projectStatus(project) {
   if (project.state === 'incoming') return { label: 'Update available', tone: 'accent' }
   if (project.state === 'customized' || project.different) return { label: 'Different', tone: 'accent' }
   if (project.state === 'adapted') return { label: 'Install-managed', tone: 'quiet' }
-  if (project.state === 'local_only') return { label: 'Local only', tone: 'quiet' }
+  if (project.state === 'local_only') return { label: 'No shared source', tone: 'warn' }
   return { label: 'Aligned', tone: 'ok' }
+}
+
+function fileCount(value) {
+  const count = Number(value || 0)
+  return count + (count === 1 ? ' file' : ' files')
+}
+
+function changeFacts(project) {
+  const facts = []
+  if (project.workingFiles > 0) facts.push(fileCount(project.workingFiles) + ' being edited')
+  if (project.authoredFiles > 0) facts.push(fileCount(project.authoredFiles) + ' changed locally')
+  if (project.originBehind > 0) {
+    facts.push(project.originBehind + (project.originBehind === 1 ? ' shared update' : ' shared updates'))
+  }
+  return facts.join(' · ')
+}
+
+// The opening view uses this deliberately narrow summary. Aligned projects,
+// installer-only adjustments, and ordinary active reviews already represented
+// in the feed return null, keeping the overview silent when there is no useful
+// local/upstream position to act on.
+export function projectOverview(project) {
+  if (!project || project.kind === 'external') return null
+  if (project.builtHere) {
+    return {
+      label: 'Built here',
+      detail: 'This app does not have a GitHub home yet',
+      tone: 'accent',
+    }
+  }
+  if (project.state === 'local_only') {
+    return {
+      label: 'No shared update source',
+      detail: 'A GitHub repository exists, but there is no shared version to compare',
+      tone: 'warn',
+    }
+  }
+  if (project.state === 'conflict') {
+    return {
+      label: 'Changes need help',
+      detail: changeFacts(project) || 'An update could not be combined safely',
+      tone: 'danger',
+    }
+  }
+  const bothChanged = project.state === 'diverged' || (
+    project.originBehind > 0 && (project.originAhead > 0 || project.different || project.workingFiles > 0)
+  )
+  if (bothChanged) {
+    return {
+      label: 'Both versions changed',
+      detail: changeFacts(project) || 'Your version and the shared version are different',
+      tone: 'warn',
+    }
+  }
+  if (project.workingFiles > 0) {
+    return {
+      label: 'Local edits in progress',
+      detail: fileCount(project.workingFiles) + ' being edited',
+      tone: 'warn',
+    }
+  }
+  if (project.different || project.state === 'customized') {
+    return {
+      label: 'Local changes not shared',
+      detail: project.authoredFiles > 0
+        ? fileCount(project.authoredFiles) + ' differ from the shared version'
+        : 'Your version differs from the shared version',
+      tone: 'accent',
+    }
+  }
+  if (project.originBehind > 0 || project.state === 'incoming') {
+    return {
+      label: 'Update available',
+      detail: project.originBehind > 0
+        ? project.originBehind + (project.originBehind === 1 ? ' shared update is ready' : ' shared updates are ready')
+        : 'The shared version has moved ahead',
+      tone: 'accent',
+    }
+  }
+  if (project.detached) {
+    return {
+      label: 'Not on the main version',
+      detail: project.head_sha ? 'At commit ' + project.head_sha.slice(0, 7) : 'Detached from a branch',
+      tone: 'warn',
+    }
+  }
+  if (project.branch && project.branch !== 'main') {
+    return {
+      label: 'On another version',
+      detail: 'Currently on ' + project.branch,
+      tone: 'warn',
+    }
+  }
+  return null
+}
+
+export function actionableSourceProjects(projects) {
+  return (projects || []).filter((project) => projectOverview(project))
+}
+
+// Agent handoffs are specific to the inspected project and conservative about
+// public work: the button only opens a drafted chat, and publishing prompts ask
+// the agent to confirm the destination before creating anything on GitHub.
+export function projectAgentAction(project) {
+  if (!project) return null
+  const name = project.name || 'this project'
+  const repo = project.canonical_repo ? ` (${project.canonical_repo})` : ''
+  if (project.builtHere) {
+    return {
+      label: 'Ask agent to publish',
+      event: 'publish_local_app',
+      draft: `Help me publish the locally built app "${name}" to GitHub. Inspect the app first, then confirm the repository name and visibility with me before creating or pushing anything public.`,
+    }
+  }
+  if (project.state === 'local_only') {
+    return {
+      label: 'Ask agent to review',
+      event: 'review_missing_source',
+      draft: `Inspect ${name}${repo}. It has a GitHub repository but no shared update source on this Möbius. Explain whether the source should be connected before making any changes.`,
+    }
+  }
+  if (project.state === 'conflict' || project.state === 'diverged' || (
+    project.originBehind > 0 && (project.different || project.workingFiles > 0)
+  )) {
+    return {
+      label: 'Ask agent for help',
+      event: 'resolve_source_state',
+      draft: `Inspect ${name}${repo}. My local version and the shared version both have changes. Explain what differs and help me choose a safe next step without discarding local work.`,
+    }
+  }
+  if (project.workingFiles > 0 || project.different || project.state === 'customized') {
+    return {
+      label: 'Ask agent to prepare',
+      event: 'prepare_contribution',
+      draft: `Inspect my local changes in ${name}${repo} and prepare an upstream contribution for them. Do not publish anything yet; stage it in Contribute so I can review it first.`,
+    }
+  }
+  if (project.originBehind > 0 || project.state === 'incoming') {
+    return {
+      label: 'Ask agent about update',
+      event: 'review_source_update',
+      draft: `Review the available shared update for ${name}${repo}. Explain what changed and whether it is safe to update my local version before making any changes.`,
+    }
+  }
+  if (project.detached || (project.branch && project.branch !== 'main')) {
+    return {
+      label: 'Ask agent to review',
+      event: 'review_source_position',
+      draft: `Inspect the current local version of ${name}${repo}. Explain how it relates to main and whether any local work needs to be preserved or contributed.`,
+    }
+  }
+  return null
 }
 
 export function contributionRelationship(rec, project) {

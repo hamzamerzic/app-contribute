@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  actionableSourceProjects,
   attachSourceProjects,
   contributionRelationship,
   formatSourceDelta,
+  projectAgentAction,
   projectMatchesFilter,
+  projectOverview,
   projectForks,
   projectStatus,
   recordBranch,
@@ -61,7 +64,7 @@ test('active records for an uninstalled repo stay visible', () => {
   assert.equal(projectStatus(external).label, 'Contribution only')
 })
 
-test('omits installed apps without a Git repository', () => {
+test('keeps locally built apps at the bottom as publishing candidates', () => {
   const projects = attachSourceProjects({
     ...snapshot,
     apps: [
@@ -72,8 +75,25 @@ test('omits installed apps without a Git repository', () => {
       },
     ],
   }, [])
-  assert.equal(projects.some((project) => project.name === 'Local scratchpad'), false)
-  assert.equal(sourceSummary(projects).sources, 2)
+  assert.equal(projects.at(-1).name, 'Local scratchpad')
+  assert.equal(projectStatus(projects.at(-1)).label, 'Built here')
+  assert.equal(projectMatchesFilter(projects.at(-1), 'changed'), true)
+  assert.equal(sourceSummary(projects).sources, 3)
+})
+
+test('does not offer to publish an app that already has a GitHub repository', () => {
+  const project = attachSourceProjects({
+    platform: null,
+    apps: [{
+      key: 'app:github', kind: 'app', name: 'Existing app', available: true,
+      canonical_repo: 'owner/existing-app', state: 'local_only', branch: 'main',
+      head_sha: 'abcdef12', working: { available: true, files: 0 },
+    }],
+  }, [])[0]
+  assert.equal(project.builtHere, false)
+  assert.equal(projectStatus(project).label, 'No shared source')
+  assert.equal(projectAgentAction(project).event, 'review_missing_source')
+  assert.doesNotMatch(projectAgentAction(project).draft, /publish the locally built app/)
 })
 
 test('attention and relationship labels preserve real PR head topology', () => {
@@ -135,4 +155,57 @@ test('install-managed deltas are visible without counting as customization', () 
 test('formats authoritative endpoint tree delta', () => {
   assert.equal(formatSourceDelta(snapshot.platform), '4 source files')
   assert.equal(formatSourceDelta(snapshot.apps[0]), 'Source trees match')
+})
+
+test('opening overview includes only useful local or shared-source positions', () => {
+  const projects = attachSourceProjects({
+    platform: {
+      ...snapshot.platform,
+      state: 'aligned', ahead: 0, behind: 0,
+      tree: { available: true, files: 0 },
+    },
+    apps: [
+      snapshot.apps[0],
+      {
+        key: 'app:changed', kind: 'app', name: 'Notes', available: true,
+        canonical_repo: 'mobius-os/app-notes', state: 'working', branch: 'main',
+        tree: { available: true, files: 0 }, working: { available: true, files: 2 },
+      },
+      {
+        key: 'app:new', kind: 'app', name: 'My app', available: true,
+        canonical_repo: null, state: 'local_only', branch: 'main',
+        tree: null, working: { available: true, files: 0 },
+      },
+    ],
+  }, [])
+  const overview = actionableSourceProjects(projects)
+  assert.deepEqual(overview.map((project) => project.name), ['Notes', 'My app'])
+  assert.equal(projectOverview(overview[0]).label, 'Local edits in progress')
+  assert.equal(projectOverview(overview[1]).detail, 'This app does not have a GitHub home yet')
+})
+
+test('agent actions prepare local changes and guard public app publishing', () => {
+  const changed = attachSourceProjects({
+    platform: {
+      ...snapshot.platform,
+      state: 'customized', ahead: 1, behind: 0,
+      tree: { available: true, files: 3 },
+      working: { available: true, files: 0 },
+    },
+    apps: [],
+  }, [])[0]
+  const prepare = projectAgentAction(changed)
+  assert.equal(prepare.label, 'Ask agent to prepare')
+  assert.match(prepare.draft, /stage it in Contribute so I can review it first/)
+
+  const localApp = attachSourceProjects({
+    platform: null,
+    apps: [{
+      key: 'app:new', kind: 'app', name: 'My app', available: true,
+      canonical_repo: null, state: 'local_only', working: { files: 0 },
+    }],
+  }, [])[0]
+  const publish = projectAgentAction(localApp)
+  assert.equal(publish.label, 'Ask agent to publish')
+  assert.match(publish.draft, /confirm the repository name and visibility/)
 })

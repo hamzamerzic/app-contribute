@@ -17,6 +17,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CSS } from './theme.js'
 import {
+  actionableSourceProjects,
+  attachSourceProjects,
+} from './source-map.js'
+import {
   applyLiveStates,
   buildRefreshQuery,
   groupRecords,
@@ -37,6 +41,7 @@ import {
 import { ConnectionCard } from './ui/ConnectionCard.jsx'
 import { Feed } from './ui/Feed.jsx'
 import { SourceMap } from './ui/SourceMap.jsx'
+import { SourceOverview } from './ui/SourceOverview.jsx'
 
 // The one icon that isn't chrome: the empty-state mark. A branch merging up
 // into a trunk — the same motif as the app icon, so the two read as kin.
@@ -121,6 +126,7 @@ export default function ContributeApp({ appId, token }) {
   const [sourceSnapshot, setSourceSnapshot] = useState(null)
   const [sourceLoading, setSourceLoading] = useState(true)
   const [sourceError, setSourceError] = useState('')
+  const [sourceFocus, setSourceFocus] = useState(null)
   const [reviewStatus, setReviewStatus] = useState({
     state: 'loading', byId: {}, checkedAt: '',
   })
@@ -329,6 +335,26 @@ export default function ContributeApp({ appId, token }) {
     requestAnimationFrame(() => tabRefs.current[next]?.focus())
   }, [setView])
 
+  const openSourceProject = useCallback((key) => {
+    setSourceFocus((current) => ({ key, request: (current?.request || 0) + 1 }))
+    setView('sources')
+  }, [setView])
+
+  const onAskSourceAgent = useCallback((project, action) => {
+    if (!action || window.parent === window) {
+      return { ok: false, reason: 'standalone' }
+    }
+    window.parent.postMessage(
+      { type: 'moebius:new-chat', draft: action.draft },
+      window.location.origin,
+    )
+    window.mobius?.signal?.('source_agent_handoff', {
+      action: action.event,
+      project: project.key,
+    })
+    return { ok: true }
+  }, [])
+
   // Contributions is one long reading feed; Repository map owns two internal
   // panes on desktop. Reset the shared page scroller at the boundary so a deep
   // feed position never shifts the map header or couples the two scroll modes.
@@ -453,6 +479,14 @@ export default function ContributeApp({ appId, token }) {
   }, [appId, token, applyRecordUpdates, replaceFeed, refreshReviewStatus])
 
   const groups = useMemo(() => groupRecords(records), [records])
+  const sourceProjects = useMemo(
+    () => attachSourceProjects(sourceSnapshot, records),
+    [sourceSnapshot, records],
+  )
+  const actionableProjects = useMemo(
+    () => actionableSourceProjects(sourceProjects),
+    [sourceProjects],
+  )
   const isEmpty = records.length === 0
 
   return (
@@ -496,11 +530,13 @@ export default function ContributeApp({ appId, token }) {
         {view === 'sources' ? (
           <SourceMap
             snapshot={sourceSnapshot}
-            records={records}
+            projects={sourceProjects}
             conn={conn}
             loading={sourceLoading}
             error={sourceError}
             onRetry={refreshSources}
+            focusRequest={sourceFocus}
+            onAskAgent={onAskSourceAgent}
           />
         ) : (
           <div
@@ -509,6 +545,11 @@ export default function ContributeApp({ appId, token }) {
             role="tabpanel"
             aria-labelledby="co-tab-contributions"
           >
+            <SourceOverview
+              projects={actionableProjects}
+              onOpen={openSourceProject}
+              onViewAll={() => setView('sources')}
+            />
             <ConnectionCard
               conn={conn}
               token={token}
@@ -516,7 +557,9 @@ export default function ContributeApp({ appId, token }) {
             />
             {/* Hold the feed area blank until the first load resolves so an empty
                 ledger doesn't flash the sell-the-loop copy before data arrives. */}
-            {loading ? null : isEmpty ? <EmptyState /> : (
+            {loading ? null : isEmpty ? (
+              actionableProjects.length > 0 ? null : <EmptyState />
+            ) : (
               <Feed
                 groups={groups}
                 records={records}

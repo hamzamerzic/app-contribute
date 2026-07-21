@@ -119,6 +119,57 @@ export const CSS = `
   color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
 }
 
+/* Actionable-only opening summary. Aligned sources never render here, so this
+   compact list earns its position above account/setup chrome. */
+.co-overview { margin: 1px 0 18px; }
+.co-overview-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  margin-bottom: 9px;
+}
+.co-overview-head h2 { margin: 0; font-size: 14px; line-height: 1.35; font-weight: 700; }
+.co-overview-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.co-overview-head > span {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 21px; height: 21px; padding: 0 6px; border-radius: 999px;
+  background: var(--surface2, var(--surface)); color: var(--muted);
+  font-size: 10.5px; font-variant-numeric: tabular-nums;
+}
+.co-overview-list {
+  overflow: hidden; border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface);
+}
+.co-overview-row {
+  display: grid; grid-template-columns: 9px minmax(92px, .7fr) minmax(0, 1.5fr) 18px;
+  align-items: center; gap: 11px; width: 100%; min-height: 58px; padding: 10px 12px;
+  border: 0; background: transparent; color: var(--text); font: inherit;
+  text-align: left; cursor: pointer;
+}
+.co-overview-row + .co-overview-row { border-top: 1px solid var(--border); }
+@media (hover: hover) {
+  .co-overview-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+}
+.co-overview-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.co-overview-dot.tone-accent { background: var(--accent); }
+.co-overview-dot.tone-warn { background: color-mix(in srgb, var(--accent) 70%, var(--text)); }
+.co-overview-dot.tone-danger { background: var(--danger); }
+.co-overview-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; font-weight: 650;
+}
+.co-overview-status { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-overview-status strong { font-size: 12px; line-height: 1.35; font-weight: 650; }
+.co-overview-status small {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted); font-size: 10.5px; line-height: 1.35;
+}
+.co-overview-row > .co-icon { color: var(--muted); }
+.co-overview-all {
+  display: inline-flex; align-items: center; gap: 5px; min-height: 44px;
+  margin-top: 3px; padding: 6px 2px; border: 0; background: transparent;
+  color: var(--accent); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+@media (hover: hover) { .co-overview-all:hover { text-decoration: underline; } }
+
 /* Repository map — one glance from origin to this Möbius, then outward
    to GitHub forks and PR branches. Detail is visual first; file lists sit below. */
 .co-sources { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding-bottom: 0; }
@@ -195,6 +246,12 @@ export const CSS = `
   border: 1px solid var(--border); border-radius: 13px; background: var(--surface);
   scrollbar-width: thin; scrollbar-color: var(--border) transparent;
   overscroll-behavior: contain;
+}
+.co-source-group { flex: 0 0 auto; min-width: 0; }
+.co-source-group + .co-source-group { border-top: 1px solid var(--border); }
+.co-source-group-label {
+  padding: 9px 11px 6px; background: var(--surface2, var(--surface));
+  color: var(--muted); font-size: 10.5px; line-height: 1.35; font-weight: 650;
 }
 .co-source-row-wrap {
   flex: 0 0 auto; min-width: 0; overflow: hidden;
@@ -401,6 +458,47 @@ export const CSS = `
 }
 .co-project-files-toggle .co-icon { transition: transform .16s ease; }
 .co-project-files-toggle[aria-expanded="true"] .co-icon { transform: rotate(180deg); }
+
+.co-local-position {
+  display: flex; flex-direction: column; gap: 3px; margin-top: 14px;
+  padding: 13px 2px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+.co-local-position strong { font-size: 12.5px; }
+.co-local-position span { color: var(--muted); font-size: 11px; line-height: 1.5; }
+
+.co-position-details { border-top: 1px solid var(--border); }
+.co-position-details > summary {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  min-height: 46px; padding: 4px 2px; list-style: none; cursor: pointer;
+  color: var(--muted); font-size: 11.5px; font-weight: 650;
+}
+.co-position-details > summary::-webkit-details-marker { display: none; }
+.co-position-details > summary .co-icon { transition: transform .16s ease; }
+.co-position-details[open] > summary .co-icon { transform: rotate(180deg); }
+.co-position-details dl { margin: 0 0 12px; }
+.co-position-details dl > div {
+  display: grid; grid-template-columns: minmax(92px, .45fr) minmax(0, 1fr);
+  gap: 12px; padding: 7px 2px;
+}
+.co-position-details dl > div + div { border-top: 1px solid var(--border); }
+.co-position-details dt { color: var(--muted); font-size: 10.5px; }
+.co-position-details dd { min-width: 0; margin: 0; text-align: right; }
+.co-position-details code {
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-family: var(--mono, var(--font)); font-size: 10px;
+}
+.co-source-action {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 12px 2px 2px; border-top: 1px solid var(--border);
+}
+.co-source-action > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-source-action > div strong { font-size: 12.5px; }
+.co-source-action > div span { color: var(--muted); font-size: 10.5px; line-height: 1.4; }
+.co-source-action > button { flex: 0 0 auto; }
+.co-source-action > p {
+  flex-basis: 100%; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4;
+}
+.co-local-position + .co-source-action { border-top: 0; }
 
 
 .co-source-loading { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48dvh; color: var(--muted); }
@@ -1111,6 +1209,16 @@ export const CSS = `
   .co-header { padding-inline: 1px; }
   .co-tabs { gap: 18px; margin-top: 2px; }
   .co-tabs button { flex: 1 1 0; padding-inline: 2px; font-size: 12.5px; }
+  .co-overview-row {
+    grid-template-columns: 9px minmax(0, 1fr) 18px;
+    grid-template-rows: auto auto; gap: 2px 10px; padding-block: 9px;
+  }
+  .co-overview-dot { grid-column: 1; grid-row: 1 / 3; }
+  .co-overview-name { grid-column: 2; grid-row: 1; }
+  .co-overview-status { grid-column: 2; grid-row: 2; }
+  .co-overview-status strong { font-size: 11px; }
+  .co-overview-status small { margin-top: 1px; }
+  .co-overview-row > .co-icon { grid-column: 3; grid-row: 1 / 3; }
   .co-source-toolbar { align-items: stretch; }
   .co-source-filters { width: 100%; }
   .co-source-filter { flex: 1 0 auto; text-align: center; }
@@ -1118,6 +1226,8 @@ export const CSS = `
   .co-history > summary > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .co-source-row { min-height: 55px; padding: 8px 9px; }
   .co-source-detail { padding: 12px 9px 14px; }
+  .co-source-action { align-items: stretch; flex-direction: column; }
+  .co-source-action > button { width: 100%; }
   .co-observe-map {
     grid-template-columns: 1fr;
     grid-template-areas: 'source' 'edge' 'local' 'branch' 'reviews'; gap: 4px;
