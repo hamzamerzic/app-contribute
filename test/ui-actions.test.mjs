@@ -46,6 +46,10 @@ test('review details show at most two proposed GitHub labels', () => {
   assert.match(cardSource, /slice\(0, 2\)/)
   assert.match(cardSource, /aria-label="GitHub labels"/)
   assert.match(cardSource, /last_submit_labels_applied/)
+  assert.match(cardSource, /last_submit_labels_missing/)
+  assert.match(cardSource, /last_submit_labels_note/)
+  assert.match(cardSource, /Labels applied/)
+  assert.match(cardSource, /Not applied/)
   assert.match(cardSource, /<PlanLabels rec=\{rec\}/)
 })
 

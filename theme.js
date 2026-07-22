@@ -951,10 +951,11 @@ export const CSS = `
 .co-prior-work-links span { display: block; margin-top: 1px; color: var(--muted); line-height: 1.4; }
 .co-prior-work-more { color: var(--muted); font-size: 11.5px; }
 .co-plan-labels {
-  display: flex; align-items: center; gap: 10px; margin: 10px 0 14px;
+  display: flex; flex-direction: column; align-items: stretch; gap: 7px; margin: 10px 0 14px;
   color: var(--muted); font-size: 11px;
 }
-.co-plan-labels > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.co-plan-labels-row { display: flex; align-items: center; gap: 10px; }
+.co-plan-labels-row > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .co-plan-label {
   display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
@@ -963,6 +964,8 @@ export const CSS = `
   color: color-mix(in srgb, var(--accent) 72%, var(--text));
   font-weight: 650;
 }
+.co-plan-label.is-missing { border-style: dashed; color: var(--muted); background: transparent; }
+.co-plan-labels-note { margin: 0; line-height: 1.45; }
 /* One calm reassurance line above the diff, backed by the source-only
    allowlist. Muted, not a banner — it states what is already guaranteed. */
 .co-review-assurance {

@@ -156,20 +156,45 @@ function PriorWorkEvidence({ priorWork }) {
 }
 
 function PlanLabels({ rec }) {
-  const requested = (Array.isArray(rec.plan?.labels) ? rec.plan.labels : [])
+  const cleanLabels = (values) => (Array.isArray(values) ? values : [])
     .filter((label) => typeof label === 'string' && label.trim())
     .map((label) => label.trim())
     .slice(0, 2)
+  const requested = cleanLabels(rec.plan?.labels)
   const published = ['draft', 'open', 'merged', 'closed'].includes(rec.status)
   const hasOutcome = Array.isArray(rec.last_submit_labels_applied)
-  const visible = published && hasOutcome ? rec.last_submit_labels_applied : requested
-  if (visible.length === 0) return null
+  const applied = cleanLabels(rec.last_submit_labels_applied)
+  const missing = cleanLabels(rec.last_submit_labels_missing)
+  const note = typeof rec.last_submit_labels_note === 'string'
+    ? rec.last_submit_labels_note.trim()
+    : ''
+  if (!published || !hasOutcome) {
+    if (requested.length === 0) return null
+    return (
+      <section className="co-plan-labels" aria-label="GitHub labels">
+        <div className="co-plan-labels-row">
+          <span>Labels</span>
+          <div>{requested.map((label, index) => <span className="co-plan-label" key={`${label}-${index}`}>{label}</span>)}</div>
+        </div>
+      </section>
+    )
+  }
+  if (applied.length === 0 && missing.length === 0 && !note) return null
   return (
     <section className="co-plan-labels" aria-label="GitHub labels">
-      <span>{published && hasOutcome ? 'Labels applied' : 'Labels'}</span>
-      <div>
-        {visible.map((label) => <span className="co-plan-label" key={label}>{label}</span>)}
-      </div>
+      {applied.length > 0 ? (
+        <div className="co-plan-labels-row">
+          <span>Labels applied</span>
+          <div>{applied.map((label, index) => <span className="co-plan-label" key={`${label}-${index}`}>{label}</span>)}</div>
+        </div>
+      ) : null}
+      {missing.length > 0 ? (
+        <div className="co-plan-labels-row">
+          <span>Not applied</span>
+          <div>{missing.map((label, index) => <span className="co-plan-label is-missing" key={`${label}-${index}`}>{label}</span>)}</div>
+        </div>
+      ) : null}
+      {note ? <p className="co-plan-labels-note">{note}</p> : null}
     </section>
   )
 }
