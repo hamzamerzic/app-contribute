@@ -67,9 +67,12 @@ export const CSS = `
 }
 
 .co-header {
-  display: flex; align-items: center; gap: 12px;
+  position: relative; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px;
   padding: max(18px, env(safe-area-inset-top)) 2px 8px;
 }
+.co-header-main { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.co-brand-copy { min-width: 0; }
 .co-brand-icon {
   width: 34px; height: 34px; border-radius: 8px;
   object-fit: cover; flex-shrink: 0; display: block;
@@ -84,7 +87,18 @@ export const CSS = `
 .co-title { margin: 0; font-size: 19px; font-weight: 720; letter-spacing: -0.02em; }
 .co-subtitle { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 
-.co-offline-note { display: block; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.co-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.co-toolbar-check {
+  min-height: 36px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 10px; border-radius: 999px;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: var(--surface2, var(--surface)); border: 1px solid var(--border);
+}
+.ma-spinner.is-compact { width: 15px; height: 15px; border-width: 2px; }
+.co-offline-note {
+  grid-column: 1 / -1; display: block; margin: -2px 0 0 46px;
+  font-size: 12px; color: var(--muted);
+}
 
 /* Sources / Contributions top-level split. The page shell is always wide;
    Projects alone fills it while Contributions stays at a 680px reading measure. */
@@ -119,56 +133,29 @@ export const CSS = `
   color: var(--muted); font-size: 10.5px; font-variant-numeric: tabular-nums;
 }
 
-/* Actionable-only opening summary. Aligned sources never render here, so this
-   compact list earns its position above account/setup chrome. */
-.co-overview { margin: 1px 0 18px; }
-.co-overview-head {
-  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
-  margin-bottom: 9px;
-}
-.co-overview-head h2 { margin: 0; font-size: 14px; line-height: 1.35; font-weight: 700; }
-.co-overview-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
-.co-overview-head > span {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 21px; height: 21px; padding: 0 6px; border-radius: 999px;
-  background: var(--surface2, var(--surface)); color: var(--muted);
-  font-size: 10.5px; font-variant-numeric: tabular-nums;
-}
-.co-overview-list {
-  overflow: hidden; border: 1px solid var(--border); border-radius: 12px;
-  background: var(--surface);
-}
-.co-overview-row {
-  display: grid; grid-template-columns: 9px minmax(92px, .7fr) minmax(0, 1.5fr) 18px;
-  align-items: center; gap: 11px; width: 100%; min-height: 58px; padding: 10px 12px;
-  border: 0; background: transparent; color: var(--text); font: inherit;
+/* Contributions is the inbox; project source detail lives in its own tab. */
+.co-overview {
+  display: grid; grid-template-columns: 9px minmax(0, 1fr) 18px;
+  align-items: center; gap: 10px; width: 100%; min-height: 56px;
+  margin: 1px 0 14px; padding: 8px 11px;
+  border: 1px solid var(--border); border-radius: 11px;
+  background: var(--surface); color: var(--text); font: inherit;
   text-align: left; cursor: pointer;
 }
-.co-overview-row + .co-overview-row { border-top: 1px solid var(--border); }
-@media (hover: hover) {
-  .co-overview-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-}
-.co-overview-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.co-overview-dot.tone-accent { background: var(--accent); }
-.co-overview-dot.tone-warn { background: color-mix(in srgb, var(--accent) 70%, var(--text)); }
-.co-overview-dot.tone-danger { background: var(--danger); }
-.co-overview-name {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 13px; font-weight: 650;
-}
-.co-overview-status { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.co-overview-status strong { font-size: 12px; line-height: 1.35; font-weight: 650; }
-.co-overview-status small {
+.co-overview.is-loading { cursor: default; }
+.co-overview.is-loading .ma-spinner { margin-left: -3px; }
+.co-overview-space { width: 18px; height: 1px; }
+.co-overview-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.co-overview-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-overview-copy strong { font-size: 12.5px; line-height: 1.35; }
+.co-overview-copy small {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted); font-size: 10.5px; line-height: 1.35;
+  color: var(--muted); font-size: 11px; line-height: 1.35;
 }
-.co-overview-row > .co-icon { color: var(--muted); }
-.co-overview-all {
-  display: inline-flex; align-items: center; gap: 5px; min-height: 44px;
-  margin-top: 3px; padding: 6px 2px; border: 0; background: transparent;
-  color: var(--accent); font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+.co-overview > .co-icon { color: var(--muted); }
+@media (hover: hover) {
+  .co-overview:hover { border-color: color-mix(in srgb, var(--accent) 34%, var(--border)); }
 }
-@media (hover: hover) { .co-overview-all:hover { text-decoration: underline; } }
 
 /* Repository map — one glance from origin to this Möbius, then outward
    to GitHub forks and PR branches. Detail is visual first; file lists sit below. */
@@ -531,16 +518,27 @@ export const CSS = `
 .co-conn.is-connected {
   display: block; padding: 0; border: 0; border-radius: 0; background: transparent;
 }
-.co-conn-summary {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center; gap: 8px; min-height: 44px;
+.co-conn.is-toolbar { position: relative; }
+.co-github-menu {
+  min-height: 40px; max-width: 210px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--muted); font: inherit; cursor: pointer;
+  transition: color .14s ease, border-color .14s ease, background .14s ease;
 }
-.co-conn-summary .co-conn-dot { margin-top: 0; }
-.co-conn-summary .co-conn-title { margin: 0; font-size: 12px; color: var(--muted); font-weight: 550; }
-.co-access-btn { border-color: transparent; background: transparent; }
+.co-github-menu > span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-size: 12px; font-weight: 650;
+}
+.co-github-menu > .co-icon:last-child { color: var(--muted); }
+@media (hover: hover) {
+  .co-github-menu:hover { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); }
+}
 .co-conn-settings {
+  position: absolute; z-index: 50; top: calc(100% + 7px); right: 0;
+  width: min(360px, calc(100vw - 32px));
   display: flex; flex-direction: column; gap: 10px;
-  margin-top: 11px; padding: 12px 2px 2px; border-top: 1px solid var(--border);
+  padding: 14px; border: 1px solid var(--border); border-radius: 13px;
+  background: var(--surface); box-shadow: 0 14px 36px color-mix(in srgb, #000 28%, transparent);
 }
 
 /* Connect flow (device + PAT), shown inline when disconnected. The card
@@ -648,6 +646,10 @@ export const CSS = `
 }
 .co-section-title { margin: 0; font-size: 14px; font-weight: 680; color: var(--text); letter-spacing: -0.01em; }
 .co-section-hint { margin: 3px 0 0; font-size: 12px; color: var(--muted); }
+.co-section.is-attention .co-section-headline > span {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+}
 .co-history {
   border: 1px solid var(--border); border-radius: 13px; overflow: hidden;
   background: var(--surface);
@@ -673,6 +675,7 @@ export const CSS = `
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 13px; padding: 14px 15px; margin-top: 9px;
 }
+.co-card.is-blocked { border-color: color-mix(in srgb, var(--danger) 25%, var(--border)); }
 /* /mobius-ui:Card */
 
 /* A stack is one approval surface containing individually reviewable layers.
@@ -804,6 +807,10 @@ export const CSS = `
    owner, in a calm muted voice below the title. */
 .co-card-status { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 .co-card-summary { margin: 6px 0 0; font-size: 13px; line-height: 1.5; }
+.co-card-summary.is-clamped {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2; color: var(--muted);
+}
 .co-card-meta {
   display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px;
   font-size: 12px; color: var(--muted);
@@ -839,19 +846,20 @@ export const CSS = `
 .co-diffline-add { color: var(--green); font-weight: 650; }
 .co-diffline-del { color: var(--danger); font-weight: 650; }
 
-/* Persisted submit error — a real danger-tinted strip, not stray red text. */
+/* Persisted submit error — calm, actionable, with technical detail secondary. */
 .co-alert {
   align-self: stretch; margin-top: 10px; padding: 9px 11px;
   display: flex; flex-direction: column; gap: 6px;
   border-radius: 9px;
-  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--border));
-  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--danger) 20%, var(--border));
+  background: color-mix(in srgb, var(--danger) 5%, var(--surface));
 }
 .co-alert-text {
   margin: 0; font-size: 12.5px; line-height: 1.45; overflow-wrap: anywhere;
   color: color-mix(in srgb, var(--danger) 88%, var(--text));
 }
-.co-alert > strong { color: var(--text); font-size: 12.5px; }
+.co-alert > strong { color: var(--text); font-size: 13px; line-height: 1.35; }
+.co-alert-reassurance { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .co-alert .co-btn { align-self: flex-start; }
 /* The raw Git message, tucked behind a Details disclosure under the headline. */
 .co-alert-details > summary {
@@ -1075,6 +1083,10 @@ export const CSS = `
   margin-top: 11px; padding-top: 9px; border-top: 1px solid var(--border);
 }
 .co-card-footer.is-actions-only { justify-content: flex-end; }
+.co-action-block {
+  min-width: 0; display: flex; flex: 0 1 auto; flex-direction: column;
+  align-items: flex-end; gap: 7px;
+}
 .co-details-toggle {
   display: inline-flex; align-items: center; gap: 5px; min-height: 44px;
   margin: -7px 0; padding: 7px 4px; border: 0; border-radius: 8px;
@@ -1102,6 +1114,10 @@ export const CSS = `
 }
 .co-send-btn {
   width: auto; min-width: 76px; padding: 0 12px; gap: 7px;
+  font-size: 12.5px; font-weight: 700;
+}
+.co-refresh-btn {
+  width: auto; min-width: 132px; padding: 0 12px; gap: 7px;
   font-size: 12.5px; font-weight: 700;
 }
 .co-icon-btn.is-primary {
@@ -1206,23 +1222,30 @@ export const CSS = `
 
 @media (max-width: 520px) {
   .co-page { padding-inline: 12px; }
-  .co-header { padding-inline: 1px; }
+  .co-header { padding-inline: 1px; gap: 8px; }
+  .co-header-main { gap: 9px; }
+  .co-subtitle { display: none; }
+  .co-toolbar { gap: 5px; }
+  .co-toolbar-check { width: 36px; padding: 0; justify-content: center; }
+  .co-toolbar-check > span:last-child {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .co-github-menu { max-width: 148px; }
+  .co-offline-note { margin-left: 43px; }
   .co-tabs { gap: 18px; margin-top: 2px; }
   .co-tabs button { flex: 1 1 0; padding-inline: 2px; font-size: 12.5px; }
-  .co-overview-row {
-    grid-template-columns: 9px minmax(0, 1fr) 18px;
-    grid-template-rows: auto auto; gap: 2px 10px; padding-block: 9px;
-  }
-  .co-overview-dot { grid-column: 1; grid-row: 1 / 3; }
-  .co-overview-name { grid-column: 2; grid-row: 1; }
-  .co-overview-status { grid-column: 2; grid-row: 2; }
-  .co-overview-status strong { font-size: 11px; }
-  .co-overview-status small { margin-top: 1px; }
-  .co-overview-row > .co-icon { grid-column: 3; grid-row: 1 / 3; }
+  .co-card { padding: 13px; }
+  .co-card.is-blocked .co-card-footer { align-items: stretch; flex-direction: column; }
+  .co-card.is-blocked .co-details-toggle { align-self: flex-start; }
+  .co-card.is-blocked .co-action-block,
+  .co-card.is-blocked .co-review-actions { width: 100%; }
+  .co-card.is-blocked .co-refresh-btn { flex: 1 1 auto; }
+  .co-action-block .co-review-note,
+  .co-action-block .co-review-error { width: 100%; }
   .co-source-toolbar { align-items: stretch; }
   .co-source-filters { width: 100%; }
   .co-source-filter { flex: 1 0 auto; text-align: center; }
-  .co-conn-summary { gap: 8px; }
   .co-history > summary > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .co-source-row { min-height: 55px; padding: 8px 9px; }
   .co-source-detail { padding: 12px 9px 14px; }

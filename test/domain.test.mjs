@@ -4,10 +4,13 @@ import assert from 'node:assert/strict'
 import {
   PROBLEM_HEADLINES,
   STATUS_NARRATION,
+  isSubmissionResolutionSettled,
   mergeRecordUpdates,
   problemHeadline,
   reconcileLedgerSnapshot,
+  resolveUncertainSubmission,
   statusNarration,
+  summarizeSubmissionResolutions,
 } from '../domain.js'
 
 test('record updates preserve enumerated paths while replacing stale fields', () => {
@@ -50,6 +53,51 @@ test('equal timestamps keep a live GitHub status overlay', () => {
   const current = [{ id: 'one', status: 'merged', updated_at: '2026-07-15T02:00:00Z' }]
   const stored = [{ id: 'one', status: 'open', updated_at: '2026-07-15T02:00:00Z' }]
   assert.equal(reconcileLedgerSnapshot(current, stored)[0].status, 'merged')
+})
+
+test('a lost submit response is reconciled from the durable ledger', () => {
+  const rec = { id: 'one', status: 'prepared' }
+  assert.equal(resolveUncertainSubmission(rec, {
+    fromCache: false,
+    records: [{ id: 'one', status: 'open', url: 'https://github.com/x/y/pull/1' }],
+  }).state, 'published')
+  assert.equal(resolveUncertainSubmission(rec, {
+    fromCache: false,
+    records: [{ id: 'one', status: 'submitting' }],
+  }).state, 'publishing')
+  assert.equal(resolveUncertainSubmission(rec, {
+    fromCache: false,
+    records: [{ id: 'one', status: 'prepared', last_submit_error: 'Conflict.' }],
+  }).state, 'blocked')
+  assert.equal(resolveUncertainSubmission(rec, {
+    fromCache: true,
+    records: [{ id: 'one', status: 'prepared' }],
+  }).state, 'unconfirmed')
+  const unchanged = resolveUncertainSubmission(rec, {
+    fromCache: false,
+    records: [{ id: 'one', status: 'prepared' }],
+  })
+  assert.equal(unchanged.state, 'unchanged')
+  assert.equal(isSubmissionResolutionSettled(unchanged), false)
+  assert.equal(isSubmissionResolutionSettled({ state: 'publishing' }), true)
+})
+
+test('submitting stays publishing until every reconciled pull request is durable', () => {
+  assert.deepEqual(summarizeSubmissionResolutions([
+    { state: 'publishing' },
+  ]), {
+    state: 'publishing', total: 1, published: 0, publishing: 1, blocked: 0,
+  })
+  assert.deepEqual(summarizeSubmissionResolutions([
+    { state: 'published' },
+    { state: 'publishing' },
+  ]), {
+    state: 'publishing', total: 2, published: 1, publishing: 1, blocked: 0,
+  })
+  assert.equal(summarizeSubmissionResolutions([
+    { state: 'published' },
+    { state: 'published' },
+  ]).state, 'published')
 })
 
 test('status narration leads each lifecycle state with human copy', () => {
@@ -101,7 +149,7 @@ test('problem codes map to short human headlines, unknown falls back to raw', ()
     'branch_moved', 'diff_mismatch', 'invalid_ancestry', 'invalid_checkout',
     'invalid_plan', 'invalid_stack', 'missing_checkout', 'missing_coauthor',
     'missing_diff', 'missing_diff_hash', 'parent_merged', 'review_changed',
-    'review_unavailable', 'working_changes',
+    'review_unavailable', 'upstream_conflict', 'working_changes',
   ])
   // Unknown / empty / non-string codes return '' so the caller shows the raw
   // backend message unchanged (lenient read).

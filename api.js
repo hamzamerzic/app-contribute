@@ -176,8 +176,14 @@ export async function submitContribution({ appId, token, rec }) {
       body = null
     }
     if (r.ok) {
+      if (!body?.record) {
+        return {
+          uncertain: true,
+          error: 'We could not confirm the result. Checking the saved contribution now…',
+        }
+      }
       return {
-        ok: body?.record || null,
+        ok: body.record,
         url: body?.url || '',
       }
     }
@@ -192,10 +198,10 @@ export async function submitContribution({ appId, token, rec }) {
       error: typeof detail === 'string' ? detail : 'Could not submit this PR.',
     }
   } catch (err) {
-    if (window.mobius && window.mobius.online === false) {
-      return { error: 'You are offline — approval needs a connection.' }
+    return {
+      uncertain: true,
+      error: 'The response was lost. Checking the saved contribution before offering a retry…',
     }
-    return { error: String((err && err.message) || err) }
   }
 }
 
@@ -216,8 +222,14 @@ export async function submitContributionStack({ appId, token, recordIds }) {
     let body = null
     try { body = await r.json() } catch { body = null }
     if (r.ok) {
+      if (!Array.isArray(body?.records) || body.records.length === 0) {
+        return {
+          uncertain: true,
+          error: 'We could not confirm the result. Checking the saved contributions now…',
+        }
+      }
       return {
-        ok: Array.isArray(body?.records) ? body.records : [],
+        ok: body.records,
         submitted: Array.isArray(body?.submitted) ? body.submitted : [],
       }
     }
@@ -232,10 +244,10 @@ export async function submitContributionStack({ appId, token, recordIds }) {
     return {
       error: typeof detail === 'string' ? detail : 'Could not submit this PR stack.',
     }
-  } catch (err) {
-    if (window.mobius && window.mobius.online === false) {
-      return { error: 'You are offline — publishing a PR stack needs a connection.' }
+  } catch {
+    return {
+      uncertain: true,
+      error: 'The response was lost. Checking the saved contributions before offering a retry…',
     }
-    return { error: String((err && err.message) || err) }
   }
 }

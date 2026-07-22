@@ -26,16 +26,24 @@ export function indexReviewStatus(payload) {
 
 export function reviewStateFor(rec, reviewStatus) {
   const direct = reviewStatus?.byId?.[rec?.id]
-  if (direct) return direct
-  // Preserve the strongest locally persisted signal if a status refresh is
-  // temporarily unavailable instead of painting a failed submission healthy.
+
+  // Only a durable remote blocker may override a fresh local-ready verdict.
+  // The read-only status endpoint cannot see an upstream merge conflict, but
+  // retryable submit failures (fork inspection, transient 500s, and similar)
+  // do not invalidate the reviewed source and must not permanently disable
+  // Send after the local verifier says it is ready.
   if (rec?.status === 'prepared' && rec?.last_submit_error) {
-    return {
-      state: 'needs_refresh',
-      code: 'previous_submit_failure',
-      message: rec.last_submit_error,
+    const upstreamConflict = /no longer merges cleanly|merge conflict/i
+      .test(rec.last_submit_error)
+    if (upstreamConflict || !direct) {
+      return {
+        state: 'needs_refresh',
+        code: upstreamConflict ? 'upstream_conflict' : 'previous_submit_failure',
+        message: rec.last_submit_error,
+      }
     }
   }
+  if (direct) return direct
   return null
 }
 

@@ -82,6 +82,7 @@ export function statusNarration(rec) {
 // never emits is dead copy, and a real code without a key silently loses its
 // friendly headline. Re-verify against that file when adding entries.
 export const PROBLEM_HEADLINES = {
+  upstream_conflict: 'New upstream changes overlap this contribution',
   branch_moved: 'This changed since you reviewed it — ask your agent to refresh it',
   review_changed: 'This was edited after you reviewed it — ask your agent to refresh it',
   diff_mismatch: 'What you reviewed no longer matches what would be sent — ask your agent to refresh it',
@@ -114,6 +115,53 @@ export function mergeRecordUpdates(records, updates) {
     const update = byId.get(rec.id)
     return update ? { ...update, path: rec.path } : rec
   })
+}
+
+// Resolve the ambiguous result of a public submit whose browser response was
+// lost. The durable ledger is the authority: a successful server action has
+// already advanced the row, while a rejected action has persisted its blocker.
+// Never guess from the network error and never invite a blind retry.
+export function resolveUncertainSubmission(rec, ledger) {
+  if (!rec?.id || ledger?.fromCache || !Array.isArray(ledger?.records)) {
+    return { state: 'unconfirmed', record: null }
+  }
+  const stored = ledger.records.find((candidate) => candidate?.id === rec.id)
+  if (!stored) return { state: 'unconfirmed', record: null }
+  if (['submitting'].includes(stored.status)) {
+    return { state: 'publishing', record: stored }
+  }
+  if (['draft', 'open', 'merged', 'closed'].includes(stored.status)) {
+    return { state: 'published', record: stored }
+  }
+  if (stored.status === 'prepared' && stored.last_submit_error) {
+    return { state: 'blocked', record: stored }
+  }
+  return { state: 'unchanged', record: stored }
+}
+
+// An unchanged prepared row is not conclusive immediately after a lost POST:
+// the request may still be waiting to claim the record. Give the follow-up
+// ledger read its bounded retry before deciding that the result is unknown.
+export function isSubmissionResolutionSettled(resolution) {
+  return ['publishing', 'published', 'blocked'].includes(resolution?.state)
+}
+
+// Reduce a single or stacked reconciliation to the owner-facing outcome. Any
+// row still `submitting` keeps the whole action in Publishing: it is durable
+// enough to suppress a duplicate retry, but it is not evidence that GitHub
+// opened a pull request. Only an all-published set may use submitted/opened
+// semantics.
+export function summarizeSubmissionResolutions(resolutions) {
+  const list = Array.isArray(resolutions) ? resolutions : []
+  const published = list.filter((item) => item?.state === 'published').length
+  const publishing = list.filter((item) => item?.state === 'publishing').length
+  const blocked = list.filter((item) => item?.state === 'blocked').length
+  const total = list.length
+  let state = 'unconfirmed'
+  if (publishing > 0) state = 'publishing'
+  else if (total > 0 && published === total) state = 'published'
+  else if (blocked > 0) state = 'blocked'
+  return { state, total, published, publishing, blocked }
 }
 
 // A directory rescan is authoritative for which records exist, but its async

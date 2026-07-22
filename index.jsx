@@ -24,8 +24,11 @@ import {
   applyLiveStates,
   buildRefreshQuery,
   groupRecords,
+  isSubmissionResolutionSettled,
   mergeRecordUpdates,
   reconcileLedgerSnapshot,
+  resolveUncertainSubmission,
+  summarizeSubmissionResolutions,
 } from './domain.js'
 import { indexReviewStatus } from './review.js'
 import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger, restoreAbandoned } from './storage.js'
@@ -61,34 +64,45 @@ const CONTRIBUTION_VIEWS = ['contributions', 'sources']
 
 // The app's own icon, with a lettered fallback for installs whose icon route
 // 404s. Mirrors the App Store header pattern.
-function Header({ appId, fromCache, omittedCount }) {
+function Header({ appId, fromCache, omittedCount, checking, children }) {
   const [iconFailed, setIconFailed] = useState(false)
   return (
     <header className="co-header">
-      {iconFailed ? (
-        <span className="co-brand-fallback" aria-hidden="true">C</span>
-      ) : (
-        <img
-          src={`/api/apps/${appId}/icon?size=64`}
-          alt=""
-          width={34}
-          height={34}
-          className="co-brand-icon"
-          onError={() => setIconFailed(true)}
-        />
-      )}
-      <div>
-        <h1 className="co-title">Contribute</h1>
-        <span className="co-subtitle">Review and share Möbius improvements</span>
-        {fromCache && (
-          <span className="co-offline-note">Offline — showing your last synced feed.</span>
+      <div className="co-header-main">
+        {iconFailed ? (
+          <span className="co-brand-fallback" aria-hidden="true">C</span>
+        ) : (
+          <img
+            src={`/api/apps/${appId}/icon?size=64`}
+            alt=""
+            width={34}
+            height={34}
+            className="co-brand-icon"
+            onError={() => setIconFailed(true)}
+          />
         )}
-        {!fromCache && omittedCount > 0 && (
-          <span className="co-offline-note" role="status">
-            {omittedCount} contribution {omittedCount === 1 ? 'record needs' : 'records need'} repair.
+        <div className="co-brand-copy">
+          <h1 className="co-title">Contribute</h1>
+          <span className="co-subtitle">Review and share Möbius improvements</span>
+        </div>
+      </div>
+      <div className="co-toolbar">
+        {checking && (
+          <span className="co-toolbar-check" role="status" aria-live="polite">
+            <span className="ma-spinner is-compact" aria-hidden="true" />
+            <span>Checking…</span>
           </span>
         )}
+        {children}
       </div>
+      {fromCache && (
+        <span className="co-offline-note">Offline — showing your last synced feed.</span>
+      )}
+      {!fromCache && omittedCount > 0 && (
+        <span className="co-offline-note" role="status">
+          {omittedCount} contribution {omittedCount === 1 ? 'record needs' : 'records need'} repair.
+        </span>
+      )}
     </header>
   )
 }
@@ -180,6 +194,7 @@ export default function ContributeApp({ appId, token }) {
   }, [fetchRefreshed, replaceFeed])
 
   const refreshReviewStatus = useCallback(async () => {
+    setReviewStatus((current) => ({ ...current, state: 'loading' }))
     const outcome = await fetchReviewStatus(token, appId)
     if (outcome.ok) {
       const indexed = indexReviewStatus(outcome.data)
@@ -385,6 +400,49 @@ export default function ContributeApp({ appId, token }) {
       const next = { ...outcome.record, path: rec.path }
       applyRecordUpdates(next)
     }
+    if (outcome.uncertain) {
+      // The POST may have completed even though its response never reached the
+      // browser. Re-read the durable ledger instead of showing a raw network
+      // error or enabling a potentially duplicate retry. A short second read
+      // covers the common server-restart / connection-recovery boundary.
+      let resolution = { state: 'unconfirmed', record: null }
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450))
+        }
+        try {
+          resolution = resolveUncertainSubmission(rec, await loadLedger())
+        } catch {
+          resolution = { state: 'unconfirmed', record: null }
+        }
+        if (isSubmissionResolutionSettled(resolution)) break
+      }
+      if (resolution.record) {
+        const next = { ...resolution.record, path: rec.path }
+        applyRecordUpdates(next)
+        if (resolution.state === 'published') {
+          window.mobius?.signal?.('contribution_submitted', {
+            id: rec.id,
+            url: next.url || '',
+            reconciled: true,
+          })
+          refreshReviewStatus()
+          return { ok: true, record: next, url: next.url || '' }
+        }
+        if (resolution.state === 'publishing') {
+          refreshReviewStatus()
+          return { pending: true, record: next }
+        }
+        if (resolution.state === 'blocked') {
+          refreshReviewStatus()
+          return { error: 'Nothing was sent. This contribution needs an update before you try again.' }
+        }
+      }
+      refreshReviewStatus()
+      return {
+        error: 'We could not confirm the result. Reopen Contribute to check before trying again; a retry will not create a duplicate.',
+      }
+    }
     refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR.' }
   }, [appId, token, applyRecordUpdates, refreshReviewStatus])
@@ -410,6 +468,54 @@ export default function ContributeApp({ appId, token }) {
       })
       refreshReviewStatus()
       return { ok: true, submitted: outcome.submitted?.length || 0 }
+    }
+    if (outcome.uncertain) {
+      let resolutions = stackRecords.map(() => ({ state: 'unconfirmed', record: null }))
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450))
+        }
+        try {
+          const ledger = await loadLedger()
+          resolutions = stackRecords.map((rec) => resolveUncertainSubmission(rec, ledger))
+        } catch {
+          resolutions = stackRecords.map(() => ({ state: 'unconfirmed', record: null }))
+        }
+        if (resolutions.every(isSubmissionResolutionSettled)) break
+      }
+      const durable = resolutions.flatMap((item, index) => item.record
+        ? [{ ...item.record, path: stackRecords[index].path }]
+        : [])
+      if (durable.length > 0) applyRecordUpdates(durable)
+      const summary = summarizeSubmissionResolutions(resolutions)
+      if (summary.state === 'published') {
+        window.mobius?.signal?.('contribution_stack_submitted', {
+          stack_id: stackRecords[0]?.plan?.stack?.id || '',
+          item_count: summary.published,
+          reconciled: true,
+        })
+        refreshReviewStatus()
+        return { ok: true, submitted: summary.published }
+      }
+      if (summary.state === 'publishing') {
+        refreshReviewStatus()
+        return {
+          pending: true,
+          publishing: summary.publishing,
+          published: summary.published,
+        }
+      }
+      refreshReviewStatus()
+      if (summary.blocked > 0) {
+        return {
+          error: summary.published > 0
+            ? 'Saved progress was restored. The remaining changes show what needs updating.'
+            : 'Nothing was sent. These changes need an update before you try again.',
+        }
+      }
+      return {
+        error: 'We could not confirm the result. Reopen Contribute to check before trying again; a retry will not create duplicates.',
+      }
     }
     refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR stack.' }
@@ -488,12 +594,28 @@ export default function ContributeApp({ appId, token }) {
     [sourceProjects],
   )
   const isEmpty = records.length === 0
+  // The toolbar reflects only the app's first connection/feed read. Project
+  // checks narrate themselves in the reserved Projects row below, while quiet
+  // return-to-app validation should not flash beside the GitHub account menu.
+  const checking = loading || conn.state === 'unknown'
 
   return (
     <div className="co-root">
       <style>{CSS}</style>
       <main ref={pageRef} className={'co-page' + (view === 'sources' ? ' is-sources' : '')}>
-        <Header appId={appId} fromCache={fromCache} omittedCount={omittedCount} />
+        <Header
+          appId={appId}
+          fromCache={fromCache}
+          omittedCount={omittedCount}
+          checking={checking}
+        >
+          <ConnectionCard
+            conn={conn}
+            token={token}
+            onChanged={refreshConnection}
+            placement="toolbar"
+          />
+        </Header>
         <nav className="co-tabs" role="tablist" aria-label="Contribute views">
           <button
             type="button"
@@ -547,13 +669,14 @@ export default function ContributeApp({ appId, token }) {
           >
             <SourceOverview
               projects={actionableProjects}
-              onOpen={openSourceProject}
+              loading={sourceLoading}
               onViewAll={() => setView('sources')}
             />
             <ConnectionCard
               conn={conn}
               token={token}
               onChanged={refreshConnection}
+              placement="content"
             />
             {/* Hold the feed area blank until the first load resolves so an empty
                 ledger doesn't flash the sell-the-loop copy before data arrives. */}

@@ -31,39 +31,60 @@ export function Feed({
 }) {
   const { ready, open, history } = groups
   const readyUnits = preparedContributionUnits(ready, records)
+  const needsAttention = readyUnits.filter((unit) => (
+    unit.records || [unit.record]
+  ).some((rec) => reviewStateFor(rec, reviewStatus)?.state === 'needs_refresh'))
+  const readyToSend = readyUnits.filter((unit) => !needsAttention.includes(unit))
+
+  function renderUnit(unit) {
+    return unit.type === 'stack' ? (
+      <ContributionStack
+        key={'stack:' + unit.id}
+        unit={unit}
+        reviewStatus={reviewStatus}
+        onSendStack={onSendStack}
+        onFeedback={onFeedback}
+        loadDiff={loadDiff}
+      />
+    ) : (
+      <ContributionCard
+        key={unit.record.id}
+        rec={unit.record}
+        reviewState={reviewStateFor(unit.record, reviewStatus)}
+        onSend={onSend}
+        onFeedback={onFeedback}
+        onDismiss={onDismiss}
+        loadDiff={loadDiff}
+      />
+    )
+  }
   return (
     <>
-      {ready.length > 0 && (
+      {needsAttention.length > 0 && (
+        <section className="co-section is-attention">
+          <div>
+            <div className="co-section-headline">
+              <h2 className="co-section-title">Needs attention</h2>
+              <span>{needsAttention.length}</span>
+            </div>
+            <p className="co-section-hint">
+              These need an update before they can be sent.
+            </p>
+          </div>
+          {needsAttention.map(renderUnit)}
+        </section>
+      )}
+
+      {readyToSend.length > 0 && (
         <section className="co-section">
           <div>
             <div className="co-section-headline">
               <h2 className="co-section-title">Ready to send</h2>
-              <span>{ready.length}</span>
+              <span>{readyToSend.length}</span>
             </div>
-            <p className="co-section-hint">
-              Send a change, view its details, or leave feedback.
-            </p>
+            <p className="co-section-hint">Reviewed and waiting for your OK.</p>
           </div>
-          {readyUnits.map((unit) => unit.type === 'stack' ? (
-            <ContributionStack
-              key={'stack:' + unit.id}
-              unit={unit}
-              reviewStatus={reviewStatus}
-              onSendStack={onSendStack}
-              onFeedback={onFeedback}
-              loadDiff={loadDiff}
-            />
-          ) : (
-            <ContributionCard
-              key={unit.record.id}
-              rec={unit.record}
-              reviewState={reviewStateFor(unit.record, reviewStatus)}
-              onSend={onSend}
-              onFeedback={onFeedback}
-              onDismiss={onDismiss}
-              loadDiff={loadDiff}
-            />
-          ))}
+          {readyToSend.map(renderUnit)}
         </section>
       )}
 
