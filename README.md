@@ -36,14 +36,16 @@ contribution. This app is the dashboard for that loop:
   prompts explicitly ask the agent to confirm the repository name and visibility
   before creating or pushing anything public.
 - **Activity overview** — Merged / Open / Ready in one compact strip.
-- **Connection card** — connect GitHub right here, in the app. Two paths to
+- **GitHub account menu** — connect GitHub right here, in the app. Two paths to
   the same server-side credential: the GitHub **device flow** (shown when the
   platform has an OAuth client configured — tap Connect, then enter the
   one-time code at github.com/login/device) and a **classic personal access
   token** fallback (`public_repo` scope). Once connected it becomes a compact
   status row; optional workflow permission and disconnect controls stay under
   **Access** until needed. On an older platform the card says an update is
-  needed instead.
+  needed instead. Once connected, the account and settings live in the top
+  toolbar, while the Projects row reserves its space and reports its own
+  refresh instead of making counts pop into the layout.
 - **Feed**, grouped:
   - **Ready for review** — staged and waiting on your go-ahead. Each card
     shows high-level review context first: repo, branch, diff stat, summary,
@@ -75,6 +77,12 @@ contribution. This app is the dashboard for that loop:
     cannot be sent. A retry can keep an already-open or draft parent in view;
     if that parent has merged, Contribute asks the agent to refresh the
     remaining layers on `main` instead of silently changing the reviewed diff.
+    A durable upstream conflict remains **Needs update** until the agent
+    refreshes the reviewed contribution; retryable service errors do not mask
+    a later fresh local check. If the browser loses a submit response,
+    Contribute re-reads the durable ledger before reporting failure or offering
+    another send, so a PR that GitHub already accepted is recovered instead of
+    shown as a raw network error.
   - **Open** — PRs and issues live on GitHub, plus anything the agent is
     submitting right now. State is refreshed on open; the daily background job
     also checks for comments, reviews, and failing checks that need follow-up.
