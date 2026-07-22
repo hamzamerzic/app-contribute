@@ -9,6 +9,7 @@ import {
   timeAgo,
 } from '../domain.js'
 import { parseDiffStat } from '../diff.js'
+import { contributionLabelOutcome } from '../labels.js'
 import { FileDiffList } from './FileDiffList.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
 import { Icon } from './Icons.jsx'
@@ -84,6 +85,159 @@ function PlanSummary({ rec }) {
     <div className="co-technical-summary">
       <PlanMeta rec={rec} />
       <DiffLine stat={rec.plan?.diff_stat} />
+    </div>
+  )
+}
+
+const PRIOR_WORK_DECISIONS = {
+  none: 'No overlapping work found',
+  comment: 'The existing discussion is the right place to contribute',
+  collaborate: 'Build on the active pull request',
+  distinct_pr: 'A distinct pull request is justified after comparison',
+}
+
+function PriorWorkEvidence({ priorWork }) {
+  if (!priorWork || typeof priorWork !== 'object') return null
+  const query = typeof priorWork.query === 'string' ? priorWork.query.trim() : ''
+  const summary = typeof priorWork.summary === 'string' ? priorWork.summary.trim() : ''
+  const decision = PRIOR_WORK_DECISIONS[priorWork.decision] || 'Related work was checked'
+  const matches = (Array.isArray(priorWork.matches) ? priorWork.matches : [])
+    .map((item) => typeof item === 'string' ? { url: item } : item)
+    .filter((item) => item && typeof item.url === 'string' &&
+      item.url.startsWith('https://github.com/'))
+  if (!query && !summary && matches.length === 0 && !priorWork.decision) return null
+
+  return (
+    <section className="co-prior-work" aria-label="Existing GitHub work checked">
+      <div className="co-prior-work-head">
+        <span className="co-prior-work-check" aria-hidden="true">✓</span>
+        <div>
+          <strong>Existing work checked</strong>
+          <span>{decision}</span>
+        </div>
+      </div>
+      {summary ? <p>{summary}</p> : null}
+      {query || matches.length > 0 ? (
+        <details className="co-prior-work-details">
+          <summary>
+            Search details
+            {matches.length > 0 ? ` · ${matches.length} relevant ${matches.length === 1 ? 'match' : 'matches'}` : ''}
+          </summary>
+          <div>
+            {query ? (
+              <div className="co-prior-work-query">
+                <span>Search</span>
+                <code>{query}</code>
+              </div>
+            ) : null}
+            {matches.length > 0 ? (
+              <ul className="co-prior-work-links">
+                {matches.slice(0, 5).map((item, index) => (
+                  <li key={item.url + index}>
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                      {typeof item.title === 'string' && item.title.trim()
+                        ? item.title.trim()
+                        : `Related GitHub work ${index + 1}`}
+                    </a>
+                    {typeof item.note === 'string' && item.note.trim()
+                      ? <span>{item.note.trim()}</span>
+                      : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {matches.length > 5 ? (
+              <span className="co-prior-work-more">+{matches.length - 5} more relevant links recorded</span>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
+function PlanLabels({ rec, outcome = contributionLabelOutcome(rec) }) {
+  if (outcome.empty) return null
+  const githubUrl = typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
+    ? rec.url
+    : null
+
+  if (!outcome.published || !outcome.hasOutcome) {
+    if (outcome.requested.length === 0) return null
+    return (
+      <section className="co-plan-labels" aria-label="Reviewed GitHub labels">
+        <div className="co-plan-labels-row">
+          <span>{outcome.published ? 'Reviewed labels' : 'Labels'}</span>
+          <div>
+            {outcome.requested.map((label) => (
+              <span className="co-plan-label" key={label}>{label}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  if (!outcome.needsAttention) {
+    return (
+      <section className="co-plan-labels" aria-label="Published GitHub labels">
+        <div className="co-plan-labels-row">
+          <span>Labels applied</span>
+          <div>
+            {outcome.applied.map((label) => (
+              <span className="co-plan-label" key={label}>{label}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section
+      className={'co-label-outcome' + (outcome.needsAttention ? ' needs-attention' : '')}
+      aria-label="Published GitHub label outcome"
+    >
+      <strong>{outcome.needsAttention ? 'Labels need attention' : 'Labels applied on GitHub'}</strong>
+      {outcome.requested.length > 0 ? (
+        <LabelOutcomeRow label="Requested" labels={outcome.requested} tone="muted" />
+      ) : null}
+      {outcome.applied.length > 0 ? (
+        <LabelOutcomeRow label="Applied" labels={outcome.applied} />
+      ) : null}
+      {outcome.missing.length > 0 ? (
+        <LabelOutcomeRow label="Not available" labels={outcome.missing} tone="muted" />
+      ) : null}
+      {outcome.unconfirmed.length > 0 ? (
+        <LabelOutcomeRow label="Not confirmed" labels={outcome.unconfirmed} tone="muted" />
+      ) : null}
+      {outcome.note ? <p className="co-label-outcome-note">{outcome.note}</p> : null}
+      {outcome.needsAttention ? (
+        <p className="co-label-outcome-guidance">
+          This pull request is already published. Adjust its labels on GitHub if needed;
+          do not send it again.
+        </p>
+      ) : null}
+      {outcome.needsAttention && githubUrl ? (
+        <a className="co-review-link" href={githubUrl} target="_blank" rel="noopener noreferrer">
+          Review labels on GitHub
+        </a>
+      ) : null}
+    </section>
+  )
+}
+
+function LabelOutcomeRow({ label, labels, tone = '' }) {
+  return (
+    <div className="co-label-outcome-row">
+      <span>{label}</span>
+      <div>
+        {labels.map((value) => (
+          <span className={'co-plan-label' + (tone ? ` is-${tone}` : '')} key={value}>
+            {value}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -214,6 +368,8 @@ function ReviewPlan({ rec, loadDiff }) {
           <strong>Möbius Agent</strong>
         </div>
       ) : null}
+      <PriorWorkEvidence priorWork={plan.prior_work} />
+      <PlanLabels rec={rec} />
       {plan.body_draft ? (
         <section className="co-review-section">
           <div className="co-review-section-title">Description</div>
@@ -379,16 +535,20 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
           ) : isPr ? (
             <button
               type="button"
-              className="co-icon-btn co-send-btn is-primary"
+              className={'co-icon-btn co-send-btn is-primary' + (sending ? ' is-sending' : '')}
               disabled={sending}
               onClick={send}
+              aria-busy={sending}
               aria-label={sending ? 'Sending pull request' : 'Send pull request for review'}
               title="Send for review"
             >
-              {sending
-                ? <span className="co-action-spinner" aria-hidden="true" />
-                : <Icon name="send" />}
-              <span>{sending ? 'Sending…' : 'Send'}</span>
+              <Icon name="send" />
+              <span className="co-action-label">
+                <span>Send</span>
+                {sending ? (
+                  <span className="co-action-label-sweep" aria-hidden="true">Send</span>
+                ) : null}
+              </span>
             </button>
           ) : null}
           {!blocked ? (
@@ -514,6 +674,9 @@ export function ContributionCard({
   const title = rec.title || where || 'Untitled contribution'
   const hasLink =
     typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
+  const labelOutcome = contributionLabelOutcome(rec)
+  const showPublishedLabelOutcome = labelOutcome.published &&
+    labelOutcome.hasOutcome && !labelOutcome.empty
   const reviewable =
     status === 'prepared' && (
       reviewOnly || (
@@ -561,6 +724,9 @@ export function ContributionCard({
       )}
       <AttentionCallout rec={rec} onFeedback={onFeedback} />
       <SubmitErrorAlert rec={rec} reviewState={reviewState} />
+      {showPublishedLabelOutcome ? (
+        <PlanLabels rec={rec} outcome={labelOutcome} />
+      ) : null}
       {hasPlan && (
         <div className="co-card-footer">
           <button

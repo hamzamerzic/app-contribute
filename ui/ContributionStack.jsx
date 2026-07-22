@@ -179,8 +179,21 @@ export function ContributionStack({
             <button ref={keepPrivateRef} type="button" className="co-btn co-btn-sm" disabled={sending} onClick={() => setConfirming(false)}>
               Keep private
             </button>
-            <button type="button" className="co-btn co-btn-primary" disabled={sending} onClick={send}>
-              {sending ? 'Sending…' : 'Send for review'}
+            <button
+              type="button"
+              className={'co-btn co-btn-primary' + (sending ? ' is-sending' : '')}
+              disabled={sending}
+              onClick={send}
+              aria-busy={sending}
+            >
+              <span className="co-action-label">
+                <span>Send for review</span>
+                {sending ? (
+                  <span className="co-action-label-sweep" aria-hidden="true">
+                    Send for review
+                  </span>
+                ) : null}
+              </span>
             </button>
           </div>
           {sending ? (

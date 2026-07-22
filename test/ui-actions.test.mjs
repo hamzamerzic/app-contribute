@@ -12,8 +12,8 @@ const sourceOverviewSource = readFileSync(new URL('../ui/SourceOverview.jsx', im
 const themeSource = readFileSync(new URL('../theme.js', import.meta.url), 'utf8')
 
 test('send actions keep a visible label instead of relying on the icon alone', () => {
-  assert.match(cardSource, /sending \? 'Sending…' : 'Send'/)
-  assert.match(stackSource, /<span>Send<\/span>/)
+  assert.match(cardSource, /<span>Send<\/span>/)
+  assert.match(stackSource, /<span>Send for review<\/span>/)
 })
 
 test('single and stacked sends expose elapsed progress to assistive technology', () => {
@@ -21,6 +21,37 @@ test('single and stacked sends expose elapsed progress to assistive technology',
     assert.match(source, /role="status" aria-live="polite"/)
     assert.match(source, /sendElapsed/)
   }
+})
+
+test('sending uses the shell-style label sweep instead of a rotating action spinner', () => {
+  assert.doesNotMatch(cardSource, /co-action-spinner/)
+  assert.match(cardSource, /co-action-label-sweep/)
+  assert.match(stackSource, /co-action-label-sweep/)
+  assert.match(themeSource, /@keyframes co-action-sweep/)
+  assert.match(themeSource, /prefers-reduced-motion: no-preference/)
+})
+
+test('review details show the agent\'s prior-work search and decision', () => {
+  assert.match(cardSource, /plan\.prior_work/)
+  assert.match(cardSource, /Existing work checked/)
+  assert.match(cardSource, /Search details/)
+  assert.match(cardSource, /No overlapping work found/)
+  assert.match(cardSource, /distinct pull request is justified after comparison/)
+  assert.match(cardSource, /startsWith\('https:\/\/github\.com\/'\)/)
+  assert.match(themeSource, /\.co-prior-work \{/)
+})
+
+test('review details show reviewed labels and truthful published outcomes', () => {
+  assert.match(cardSource, /function PlanLabels/)
+  assert.match(cardSource, /contributionLabelOutcome\(rec\)/)
+  assert.match(cardSource, /aria-label="Published GitHub label outcome"/)
+  assert.match(cardSource, /aria-label="Published GitHub labels"/)
+  assert.match(cardSource, /label="Requested"/)
+  assert.match(cardSource, /Not available/)
+  assert.match(cardSource, /Not confirmed/)
+  assert.match(cardSource, /do not send it again/)
+  assert.match(cardSource, /Review labels on GitHub/)
+  assert.match(cardSource, /<PlanLabels rec=\{rec\}/)
 })
 
 test('agent handoffs use a new project-specific chat instead of an invalid open-chat event', () => {
