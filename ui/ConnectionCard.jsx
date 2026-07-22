@@ -22,7 +22,7 @@ import { Icon } from './Icons.jsx'
 const TOKEN_CREATE_URL =
   'https://github.com/settings/tokens/new?scopes=public_repo&description=Mobius'
 
-export function ConnectionCard({ conn, token, onChanged }) {
+export function ConnectionCard({ conn, token, onChanged, placement = 'content' }) {
   // Device-flow machine: idle | starting | pending | complete. PAT submission
   // is independent state so the token form works even while a flow is pending.
   const [flow, setFlow] = useState('idle')
@@ -222,6 +222,12 @@ export function ConnectionCard({ conn, token, onChanged }) {
   // No verdict yet / probe failed — the feed still renders from cache.
   if (state === 'unknown') return null
 
+  // Connected account controls belong in the top toolbar; setup and platform
+  // warnings remain in the contribution content where their copy has room.
+  const statusConnected = flow === 'complete' || state === 'connected'
+  if (placement === 'toolbar' && !statusConnected) return null
+  if (placement !== 'toolbar' && statusConnected) return null
+
   if (state === 'unsupported') {
     return (
       <div className="co-conn">
@@ -237,31 +243,24 @@ export function ConnectionCard({ conn, token, onChanged }) {
     )
   }
 
-  const isConnected = flow === 'complete' || state === 'connected'
-  if (isConnected) {
+  if (statusConnected) {
     const login = connectedLogin || conn?.login || 'your account'
     const workflowEnabled = conn?.scopes?.includes('workflow')
     const workflowFlow = flowPurpose === 'workflow'
     return (
-      <div className={'co-conn is-connected' + (settingsOpen ? ' is-open' : '')}>
-        <div className="co-conn-summary">
-          <span className="co-conn-dot is-ok" aria-hidden="true" />
-          <div className="co-conn-body">
-            <p className="co-conn-title">
-              {justConnected ? 'GitHub connected' : `GitHub · ${login}`}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="co-icon-btn co-access-btn"
-            aria-expanded={settingsOpen}
-            aria-label={settingsOpen ? 'Close GitHub settings' : 'GitHub settings'}
-            title={settingsOpen ? 'Close settings' : 'GitHub settings'}
-            onClick={() => setSettingsOpen((open) => !open)}
-          >
-            <Icon name="settings" />
-          </button>
-        </div>
+      <div className={'co-conn is-connected is-toolbar' + (settingsOpen ? ' is-open' : '')}>
+        <button
+          type="button"
+          className="co-github-menu"
+          aria-expanded={settingsOpen}
+          aria-label={`${settingsOpen ? 'Close' : 'Open'} GitHub settings for ${login}`}
+          title={settingsOpen ? 'Close GitHub settings' : 'GitHub account and settings'}
+          onClick={() => setSettingsOpen((open) => !open)}
+        >
+          <Icon name="github" size={17} />
+          <span>{justConnected ? 'Connected' : login}</span>
+          <Icon name="settings" size={15} />
+        </button>
 
         {settingsOpen && (
           <div className="co-conn-settings">

@@ -67,9 +67,12 @@ export const CSS = `
 }
 
 .co-header {
-  display: flex; align-items: center; gap: 12px;
+  position: relative; display: grid;
+  grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px 16px;
   padding: max(18px, env(safe-area-inset-top)) 2px 8px;
 }
+.co-header-main { min-width: 0; display: flex; align-items: center; gap: 12px; }
+.co-brand-copy { min-width: 0; }
 .co-brand-icon {
   width: 34px; height: 34px; border-radius: 8px;
   object-fit: cover; flex-shrink: 0; display: block;
@@ -84,7 +87,18 @@ export const CSS = `
 .co-title { margin: 0; font-size: 19px; font-weight: 720; letter-spacing: -0.02em; }
 .co-subtitle { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
 
-.co-offline-note { display: block; margin: 8px 0 0; font-size: 12px; color: var(--muted); }
+.co-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.co-toolbar-check {
+  min-height: 36px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 10px; border-radius: 999px;
+  color: var(--muted); font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  background: var(--surface2, var(--surface)); border: 1px solid var(--border);
+}
+.ma-spinner.is-compact { width: 15px; height: 15px; border-width: 2px; }
+.co-offline-note {
+  grid-column: 1 / -1; display: block; margin: -2px 0 0 46px;
+  font-size: 12px; color: var(--muted);
+}
 
 /* Sources / Contributions top-level split. The page shell is always wide;
    Projects alone fills it while Contributions stays at a 680px reading measure. */
@@ -128,6 +142,9 @@ export const CSS = `
   background: var(--surface); color: var(--text); font: inherit;
   text-align: left; cursor: pointer;
 }
+.co-overview.is-loading { cursor: default; }
+.co-overview.is-loading .ma-spinner { margin-left: -3px; }
+.co-overview-space { width: 18px; height: 1px; }
 .co-overview-mark { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .co-overview-copy { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .co-overview-copy strong { font-size: 12.5px; line-height: 1.35; }
@@ -501,16 +518,27 @@ export const CSS = `
 .co-conn.is-connected {
   display: block; padding: 0; border: 0; border-radius: 0; background: transparent;
 }
-.co-conn-summary {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center; gap: 8px; min-height: 44px;
+.co-conn.is-toolbar { position: relative; }
+.co-github-menu {
+  min-height: 40px; max-width: 210px; display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 9px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); color: var(--muted); font: inherit; cursor: pointer;
+  transition: color .14s ease, border-color .14s ease, background .14s ease;
 }
-.co-conn-summary .co-conn-dot { margin-top: 0; }
-.co-conn-summary .co-conn-title { margin: 0; font-size: 12px; color: var(--muted); font-weight: 550; }
-.co-access-btn { border-color: transparent; background: transparent; }
+.co-github-menu > span {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-size: 12px; font-weight: 650;
+}
+.co-github-menu > .co-icon:last-child { color: var(--muted); }
+@media (hover: hover) {
+  .co-github-menu:hover { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); }
+}
 .co-conn-settings {
+  position: absolute; z-index: 50; top: calc(100% + 7px); right: 0;
+  width: min(360px, calc(100vw - 32px));
   display: flex; flex-direction: column; gap: 10px;
-  margin-top: 11px; padding: 12px 2px 2px; border-top: 1px solid var(--border);
+  padding: 14px; border: 1px solid var(--border); border-radius: 13px;
+  background: var(--surface); box-shadow: 0 14px 36px color-mix(in srgb, #000 28%, transparent);
 }
 
 /* Connect flow (device + PAT), shown inline when disconnected. The card
@@ -1194,7 +1222,17 @@ export const CSS = `
 
 @media (max-width: 520px) {
   .co-page { padding-inline: 12px; }
-  .co-header { padding-inline: 1px; }
+  .co-header { padding-inline: 1px; gap: 8px; }
+  .co-header-main { gap: 9px; }
+  .co-subtitle { display: none; }
+  .co-toolbar { gap: 5px; }
+  .co-toolbar-check { width: 36px; padding: 0; justify-content: center; }
+  .co-toolbar-check > span:last-child {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .co-github-menu { max-width: 148px; }
+  .co-offline-note { margin-left: 43px; }
   .co-tabs { gap: 18px; margin-top: 2px; }
   .co-tabs button { flex: 1 1 0; padding-inline: 2px; font-size: 12.5px; }
   .co-card { padding: 13px; }
@@ -1208,7 +1246,6 @@ export const CSS = `
   .co-source-toolbar { align-items: stretch; }
   .co-source-filters { width: 100%; }
   .co-source-filter { flex: 1 0 auto; text-align: center; }
-  .co-conn-summary { gap: 8px; }
   .co-history > summary > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .co-source-row { min-height: 55px; padding: 8px 9px; }
   .co-source-detail { padding: 12px 9px 14px; }

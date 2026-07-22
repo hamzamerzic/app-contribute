@@ -64,34 +64,45 @@ const CONTRIBUTION_VIEWS = ['contributions', 'sources']
 
 // The app's own icon, with a lettered fallback for installs whose icon route
 // 404s. Mirrors the App Store header pattern.
-function Header({ appId, fromCache, omittedCount }) {
+function Header({ appId, fromCache, omittedCount, checking, children }) {
   const [iconFailed, setIconFailed] = useState(false)
   return (
     <header className="co-header">
-      {iconFailed ? (
-        <span className="co-brand-fallback" aria-hidden="true">C</span>
-      ) : (
-        <img
-          src={`/api/apps/${appId}/icon?size=64`}
-          alt=""
-          width={34}
-          height={34}
-          className="co-brand-icon"
-          onError={() => setIconFailed(true)}
-        />
-      )}
-      <div>
-        <h1 className="co-title">Contribute</h1>
-        <span className="co-subtitle">Review and share Möbius improvements</span>
-        {fromCache && (
-          <span className="co-offline-note">Offline — showing your last synced feed.</span>
+      <div className="co-header-main">
+        {iconFailed ? (
+          <span className="co-brand-fallback" aria-hidden="true">C</span>
+        ) : (
+          <img
+            src={`/api/apps/${appId}/icon?size=64`}
+            alt=""
+            width={34}
+            height={34}
+            className="co-brand-icon"
+            onError={() => setIconFailed(true)}
+          />
         )}
-        {!fromCache && omittedCount > 0 && (
-          <span className="co-offline-note" role="status">
-            {omittedCount} contribution {omittedCount === 1 ? 'record needs' : 'records need'} repair.
+        <div className="co-brand-copy">
+          <h1 className="co-title">Contribute</h1>
+          <span className="co-subtitle">Review and share Möbius improvements</span>
+        </div>
+      </div>
+      <div className="co-toolbar">
+        {checking && (
+          <span className="co-toolbar-check" role="status" aria-live="polite">
+            <span className="ma-spinner is-compact" aria-hidden="true" />
+            <span>Checking…</span>
           </span>
         )}
+        {children}
       </div>
+      {fromCache && (
+        <span className="co-offline-note">Offline — showing your last synced feed.</span>
+      )}
+      {!fromCache && omittedCount > 0 && (
+        <span className="co-offline-note" role="status">
+          {omittedCount} contribution {omittedCount === 1 ? 'record needs' : 'records need'} repair.
+        </span>
+      )}
     </header>
   )
 }
@@ -183,6 +194,7 @@ export default function ContributeApp({ appId, token }) {
   }, [fetchRefreshed, replaceFeed])
 
   const refreshReviewStatus = useCallback(async () => {
+    setReviewStatus((current) => ({ ...current, state: 'loading' }))
     const outcome = await fetchReviewStatus(token, appId)
     if (outcome.ok) {
       const indexed = indexReviewStatus(outcome.data)
@@ -582,12 +594,28 @@ export default function ContributeApp({ appId, token }) {
     [sourceProjects],
   )
   const isEmpty = records.length === 0
+  // The toolbar reflects only the app's first connection/feed read. Project
+  // checks narrate themselves in the reserved Projects row below, while quiet
+  // return-to-app validation should not flash beside the GitHub account menu.
+  const checking = loading || conn.state === 'unknown'
 
   return (
     <div className="co-root">
       <style>{CSS}</style>
       <main ref={pageRef} className={'co-page' + (view === 'sources' ? ' is-sources' : '')}>
-        <Header appId={appId} fromCache={fromCache} omittedCount={omittedCount} />
+        <Header
+          appId={appId}
+          fromCache={fromCache}
+          omittedCount={omittedCount}
+          checking={checking}
+        >
+          <ConnectionCard
+            conn={conn}
+            token={token}
+            onChanged={refreshConnection}
+            placement="toolbar"
+          />
+        </Header>
         <nav className="co-tabs" role="tablist" aria-label="Contribute views">
           <button
             type="button"
@@ -641,12 +669,14 @@ export default function ContributeApp({ appId, token }) {
           >
             <SourceOverview
               projects={actionableProjects}
+              loading={sourceLoading}
               onViewAll={() => setView('sources')}
             />
             <ConnectionCard
               conn={conn}
               token={token}
               onChanged={refreshConnection}
+              placement="content"
             />
             {/* Hold the feed area blank until the first load resolves so an empty
                 ledger doesn't flash the sell-the-loop copy before data arrives. */}
