@@ -178,6 +178,21 @@ function PlanLabels({ rec, outcome = contributionLabelOutcome(rec) }) {
     )
   }
 
+  if (!outcome.needsAttention) {
+    return (
+      <section className="co-plan-labels" aria-label="Published GitHub labels">
+        <div className="co-plan-labels-row">
+          <span>Labels applied</span>
+          <div>
+            {outcome.applied.map((label) => (
+              <span className="co-plan-label" key={label}>{label}</span>
+            ))}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   return (
     <section
       className={'co-label-outcome' + (outcome.needsAttention ? ' needs-attention' : '')}

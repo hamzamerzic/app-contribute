@@ -64,3 +64,27 @@ test('open and draft cards expose durable label failures without Send controls',
     assert.doesNotMatch(html, /Send pull request|Send for review|Contribution actions/)
   }
 })
+
+test('fully applied published labels stay compact', async (t) => {
+  if (!frontendModules) {
+    t.skip('MOBIUS_FRONTEND_NODE_MODULES is required for component rendering')
+    return
+  }
+  const { renderCard } = await cardRenderer()
+  const html = renderCard({
+    id: 'published-success',
+    type: 'pr',
+    status: 'open',
+    title: 'Truthful labels',
+    repo: 'mobius-os/app-demo',
+    url: 'https://github.com/mobius-os/app-demo/pull/42',
+    plan: { labels: ['bug', 'area: ui'] },
+    last_submit_labels_requested: ['bug', 'area: ui'],
+    last_submit_labels_applied: ['bug', 'area: ui'],
+  })
+
+  assert.match(html, /Labels applied/)
+  assert.match(html, /bug/)
+  assert.match(html, /area: ui/)
+  assert.doesNotMatch(html, /Labels need attention|Requested|do not send it again/)
+})

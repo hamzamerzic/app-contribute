@@ -983,7 +983,7 @@ export const CSS = `
   display: flex; align-items: flex-start; gap: 10px; color: var(--muted);
   font-size: 11px; line-height: 24px;
 }
-.co-label-outcome-row > span { flex: 0 0 82px; }
+.co-label-outcome-row > span { flex: 0 0 92px; white-space: nowrap; }
 .co-label-outcome-row > div { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
 .co-label-outcome-note,
 .co-label-outcome-guidance {

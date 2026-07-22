@@ -45,6 +45,7 @@ test('review details show reviewed labels and truthful published outcomes', () =
   assert.match(cardSource, /function PlanLabels/)
   assert.match(cardSource, /contributionLabelOutcome\(rec\)/)
   assert.match(cardSource, /aria-label="Published GitHub label outcome"/)
+  assert.match(cardSource, /aria-label="Published GitHub labels"/)
   assert.match(cardSource, /label="Requested"/)
   assert.match(cardSource, /Not available/)
   assert.match(cardSource, /Not confirmed/)

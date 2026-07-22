@@ -23,6 +23,15 @@ test('the visible pair is capped before duplicate folding like core submit', () 
   assert.deepEqual(outcome.requested, ['bug'])
 })
 
+test('an invalid visible label cannot promote a hidden third label', () => {
+  const outcome = contributionLabelOutcome({
+    status: 'prepared',
+    plan: { labels: ['x'.repeat(51), 'area: backend', 'area: ui'] },
+  })
+
+  assert.deepEqual(outcome.requested, ['area: backend'])
+})
+
 test('a fully applied published outcome is confirmed and needs no intervention', () => {
   const outcome = contributionLabelOutcome({
     status: 'open',
