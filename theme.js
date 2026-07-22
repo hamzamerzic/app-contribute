@@ -958,14 +958,39 @@ export const CSS = `
 .co-plan-labels-row > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .co-plan-label {
   display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px;
+  max-width: 100%; overflow-wrap: anywhere;
   border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
   border-radius: 999px;
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   color: color-mix(in srgb, var(--accent) 72%, var(--text));
   font-weight: 650;
 }
-.co-plan-label.is-missing { border-style: dashed; color: var(--muted); background: transparent; }
-.co-plan-labels-note { margin: 0; line-height: 1.45; }
+.co-plan-label.is-muted {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--muted);
+}
+.co-label-outcome {
+  align-self: stretch; display: flex; flex-direction: column; gap: 8px;
+  margin: 10px 0 14px; padding: 10px 11px; border-radius: 9px;
+  background: color-mix(in srgb, var(--green) 7%, var(--surface));
+}
+.co-label-outcome.needs-attention {
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+.co-label-outcome > strong { font-size: 12.5px; line-height: 1.35; }
+.co-label-outcome-row {
+  display: flex; align-items: flex-start; gap: 10px; color: var(--muted);
+  font-size: 11px; line-height: 24px;
+}
+.co-label-outcome-row > span { flex: 0 0 82px; }
+.co-label-outcome-row > div { min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.co-label-outcome-note,
+.co-label-outcome-guidance {
+  margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.co-label-outcome-guidance { color: var(--text); }
 /* One calm reassurance line above the diff, backed by the source-only
    allowlist. Muted, not a banner — it states what is already guaranteed. */
 .co-review-assurance {

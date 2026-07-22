@@ -41,15 +41,15 @@ test('review details show the agent\'s prior-work search and decision', () => {
   assert.match(themeSource, /\.co-prior-work \{/)
 })
 
-test('review details show at most two proposed GitHub labels', () => {
+test('review details show reviewed labels and truthful published outcomes', () => {
   assert.match(cardSource, /function PlanLabels/)
-  assert.match(cardSource, /slice\(0, 2\)/)
-  assert.match(cardSource, /aria-label="GitHub labels"/)
-  assert.match(cardSource, /last_submit_labels_applied/)
-  assert.match(cardSource, /last_submit_labels_missing/)
-  assert.match(cardSource, /last_submit_labels_note/)
-  assert.match(cardSource, /Labels applied/)
-  assert.match(cardSource, /Not applied/)
+  assert.match(cardSource, /contributionLabelOutcome\(rec\)/)
+  assert.match(cardSource, /aria-label="Published GitHub label outcome"/)
+  assert.match(cardSource, /label="Requested"/)
+  assert.match(cardSource, /Not available/)
+  assert.match(cardSource, /Not confirmed/)
+  assert.match(cardSource, /do not send it again/)
+  assert.match(cardSource, /Review labels on GitHub/)
   assert.match(cardSource, /<PlanLabels rec=\{rec\}/)
 })
 

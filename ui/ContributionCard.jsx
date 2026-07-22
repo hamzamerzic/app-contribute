@@ -9,6 +9,7 @@ import {
   timeAgo,
 } from '../domain.js'
 import { parseDiffStat } from '../diff.js'
+import { contributionLabelOutcome } from '../labels.js'
 import { FileDiffList } from './FileDiffList.jsx'
 import { MarkdownView } from './MarkdownView.jsx'
 import { Icon } from './Icons.jsx'
@@ -156,46 +157,74 @@ function PriorWorkEvidence({ priorWork }) {
 }
 
 function PlanLabels({ rec }) {
-  const cleanLabels = (values) => (Array.isArray(values) ? values : [])
-    .filter((label) => typeof label === 'string' && label.trim())
-    .map((label) => label.trim())
-    .slice(0, 2)
-  const requested = cleanLabels(rec.plan?.labels)
-  const published = ['draft', 'open', 'merged', 'closed'].includes(rec.status)
-  const hasOutcome = Array.isArray(rec.last_submit_labels_applied)
-  const applied = cleanLabels(rec.last_submit_labels_applied)
-  const missing = cleanLabels(rec.last_submit_labels_missing)
-  const note = typeof rec.last_submit_labels_note === 'string'
-    ? rec.last_submit_labels_note.trim()
-    : ''
-  if (!published || !hasOutcome) {
-    if (requested.length === 0) return null
+  const outcome = contributionLabelOutcome(rec)
+  if (outcome.empty) return null
+  const githubUrl = typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
+    ? rec.url
+    : null
+
+  if (!outcome.published || !outcome.hasOutcome) {
+    if (outcome.requested.length === 0) return null
     return (
-      <section className="co-plan-labels" aria-label="GitHub labels">
+      <section className="co-plan-labels" aria-label="Reviewed GitHub labels">
         <div className="co-plan-labels-row">
-          <span>Labels</span>
-          <div>{requested.map((label, index) => <span className="co-plan-label" key={`${label}-${index}`}>{label}</span>)}</div>
+          <span>{outcome.published ? 'Reviewed labels' : 'Labels'}</span>
+          <div>
+            {outcome.requested.map((label) => (
+              <span className="co-plan-label" key={label}>{label}</span>
+            ))}
+          </div>
         </div>
       </section>
     )
   }
-  if (applied.length === 0 && missing.length === 0 && !note) return null
+
   return (
-    <section className="co-plan-labels" aria-label="GitHub labels">
-      {applied.length > 0 ? (
-        <div className="co-plan-labels-row">
-          <span>Labels applied</span>
-          <div>{applied.map((label, index) => <span className="co-plan-label" key={`${label}-${index}`}>{label}</span>)}</div>
-        </div>
+    <section
+      className={'co-label-outcome' + (outcome.needsAttention ? ' needs-attention' : '')}
+      aria-label="Published GitHub label outcome"
+    >
+      <strong>{outcome.needsAttention ? 'Labels need attention' : 'Labels applied on GitHub'}</strong>
+      {outcome.requested.length > 0 ? (
+        <LabelOutcomeRow label="Requested" labels={outcome.requested} tone="muted" />
       ) : null}
-      {missing.length > 0 ? (
-        <div className="co-plan-labels-row">
-          <span>Not applied</span>
-          <div>{missing.map((label, index) => <span className="co-plan-label is-missing" key={`${label}-${index}`}>{label}</span>)}</div>
-        </div>
+      {outcome.applied.length > 0 ? (
+        <LabelOutcomeRow label="Applied" labels={outcome.applied} />
       ) : null}
-      {note ? <p className="co-plan-labels-note">{note}</p> : null}
+      {outcome.missing.length > 0 ? (
+        <LabelOutcomeRow label="Not available" labels={outcome.missing} tone="muted" />
+      ) : null}
+      {outcome.unconfirmed.length > 0 ? (
+        <LabelOutcomeRow label="Not confirmed" labels={outcome.unconfirmed} tone="muted" />
+      ) : null}
+      {outcome.note ? <p className="co-label-outcome-note">{outcome.note}</p> : null}
+      {outcome.needsAttention ? (
+        <p className="co-label-outcome-guidance">
+          This pull request is already published. Adjust its labels on GitHub if needed;
+          do not send it again.
+        </p>
+      ) : null}
+      {outcome.needsAttention && githubUrl ? (
+        <a className="co-review-link" href={githubUrl} target="_blank" rel="noopener noreferrer">
+          Review labels on GitHub
+        </a>
+      ) : null}
     </section>
+  )
+}
+
+function LabelOutcomeRow({ label, labels, tone = '' }) {
+  return (
+    <div className="co-label-outcome-row">
+      <span>{label}</span>
+      <div>
+        {labels.map((value) => (
+          <span className={'co-plan-label' + (tone ? ` is-${tone}` : '')} key={value}>
+            {value}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 
