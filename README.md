@@ -157,6 +157,18 @@ shape:
     "branch": "…", "repo_path": "…",
     "base_sha": "…", "head_sha": "…", "diff_sha256": "…",
     "diff_stat": "…",             // diff_excerpt is legacy — omit it
+    "prior_work": {                   // private evidence shown in Details
+      "searched_at": "2026-07-22T16:00:00Z",
+      "query": "notes reorder stale save",
+      "decision": "distinct_pr",    // none | comment | collaborate | distinct_pr
+      "summary": "An older PR covers ordering but not stale-save recovery.",
+      "matches": [{
+        "url": "https://github.com/mobius-os/app-notes/pull/12",
+        "title": "Keep note order stable",
+        "relation": "partial"
+      }]
+    },
+    "labels": ["bug", "area: ui"], // one type plus at most one area
     "stack": {                     // optional: one complete 2–12 PR chain
       "id": "notes-flow",
       "name": "Notes flow",
@@ -168,6 +180,11 @@ shape:
   }
 }
 ```
+
+PR labels stay deliberately small: one change type and, when useful, one area.
+They are visible in the expanded review before Send. Contribute applies only
+labels that already exist in the target repository; it never creates taxonomy
+as a side effect of publishing a PR.
 
 `submitting` means the platform submit endpoint has claimed the record and the
 action is in flight; `commented` is the terminal status for comment actions.

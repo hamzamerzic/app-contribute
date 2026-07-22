@@ -910,6 +910,59 @@ export const CSS = `
   color: var(--green); font-size: 12px; line-height: 1.2;
 }
 .co-review-coauthor strong { color: var(--green); font-weight: 700; }
+.co-prior-work {
+  align-self: stretch; display: flex; flex-direction: column; gap: 9px;
+  padding: 11px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: color-mix(in srgb, var(--green) 6%, var(--surface));
+}
+.co-prior-work-head { display: flex; align-items: flex-start; gap: 9px; }
+.co-prior-work-check {
+  width: 22px; height: 22px; flex: 0 0 22px; display: grid; place-items: center;
+  border-radius: 7px; background: color-mix(in srgb, var(--green) 14%, transparent);
+  color: var(--green); font-size: 12px; font-weight: 800;
+}
+.co-prior-work-head > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.co-prior-work-head strong { font-size: 13px; line-height: 1.35; }
+.co-prior-work-head span { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.co-prior-work > p { margin: 0; color: var(--text); font-size: 12.5px; line-height: 1.5; }
+.co-prior-work-details { border-top: 1px solid var(--border); }
+.co-prior-work-details > summary {
+  min-height: 38px; display: flex; align-items: center; cursor: pointer;
+  list-style: none; color: var(--muted); font-size: 12px;
+}
+.co-prior-work-details > summary::-webkit-details-marker { display: none; }
+.co-prior-work-details > summary::after {
+  content: '›'; margin-left: auto; color: var(--muted); font-size: 18px;
+  transform: rotate(0); transition: transform .14s ease;
+}
+.co-prior-work-details[open] > summary::after { transform: rotate(90deg); }
+.co-prior-work-details > div { display: flex; flex-direction: column; gap: 8px; padding-bottom: 2px; }
+.co-prior-work-query {
+  display: flex; align-items: baseline; gap: 8px; min-width: 0;
+  color: var(--muted); font-size: 11px;
+}
+.co-prior-work-query code {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--text); font-family: var(--mono, var(--font)); font-size: 11.5px;
+}
+.co-prior-work-links { margin: 0; padding-left: 20px; font-size: 12.5px; }
+.co-prior-work-links li + li { margin-top: 6px; }
+.co-prior-work-links a { color: var(--accent); overflow-wrap: anywhere; }
+.co-prior-work-links span { display: block; margin-top: 1px; color: var(--muted); line-height: 1.4; }
+.co-prior-work-more { color: var(--muted); font-size: 11.5px; }
+.co-plan-labels {
+  display: flex; align-items: center; gap: 10px; margin: 10px 0 14px;
+  color: var(--muted); font-size: 11px;
+}
+.co-plan-labels > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.co-plan-label {
+  display: inline-flex; align-items: center; min-height: 24px; padding: 2px 9px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  color: color-mix(in srgb, var(--accent) 72%, var(--text));
+  font-weight: 650;
+}
 /* One calm reassurance line above the diff, backed by the source-only
    allowlist. Muted, not a banner — it states what is already guaranteed. */
 .co-review-assurance {
@@ -1133,6 +1186,8 @@ export const CSS = `
 }
 .co-icon-btn:active { transform: scale(.96); }
 .co-icon-btn:disabled { opacity: .45; cursor: default; transform: none; }
+.co-icon-btn.is-sending:disabled,
+.co-btn.is-sending:disabled { opacity: 1; cursor: progress; }
 @media (hover: hover) {
   .co-icon-btn:hover {
     border-color: color-mix(in srgb, var(--accent) 42%, var(--border));
@@ -1146,12 +1201,33 @@ export const CSS = `
   }
 }
 .co-icon { display: block; pointer-events: none; }
-.co-action-spinner {
-  width: 17px; height: 17px; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, currentColor 24%, transparent);
-  border-top-color: currentColor; animation: co-spin .75s linear infinite;
+.co-action-label { position: relative; display: inline-block; white-space: nowrap; }
+.co-action-label-sweep { display: none; }
+@media (prefers-reduced-motion: no-preference) {
+  @supports ((-webkit-mask-image: linear-gradient(#000, #000)) or (mask-image: linear-gradient(#000, #000))) {
+    .is-sending .co-action-label-sweep {
+      display: block; position: absolute; inset: 0; overflow: hidden;
+      pointer-events: none; white-space: nowrap;
+      color: color-mix(in srgb, var(--text) 88%, var(--accent));
+      -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 32%, transparent 50%);
+      mask-image: linear-gradient(90deg, transparent 0%, #000 18%, #000 32%, transparent 50%);
+      -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+      -webkit-mask-size: 300% 100%; mask-size: 300% 100%;
+      animation: co-action-sweep 2.4s steps(48, end) infinite;
+    }
+    .co-btn-primary.is-sending .co-action-label-sweep {
+      color: color-mix(in srgb, var(--accent-fg) 86%, white);
+    }
+  }
 }
-@keyframes co-spin { to { transform: rotate(360deg); } }
+@keyframes co-action-sweep {
+  0% { -webkit-mask-position: 120% 0; mask-position: 120% 0; }
+  42% { -webkit-mask-position: -50% 0; mask-position: -50% 0; }
+  100% { -webkit-mask-position: -50% 0; mask-position: -50% 0; }
+}
+@media (forced-colors: active) {
+  .co-action-label-sweep { display: none !important; }
+}
 /* Two-tap confirm before a destructive Dismiss — deliberate, in-card, reversible. */
 .co-confirm {
   display: flex; flex-direction: column; gap: 10px; padding: 12px;

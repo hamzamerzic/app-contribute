@@ -50,10 +50,14 @@ this file — never hardcode localhost. The payload:
 
 ---
 
-## Study existing work first
+## Study existing work before every contribution
 
-Before building from scratch, check whether the ecosystem already has it — or
-already tried. Searching and studying are read-only: no approval needed.
+Run this read-only preflight early enough to avoid duplicating work, and ALWAYS
+run it again no later than before staging any PR, issue, or comment in
+Contribute. This applies even when the code is already written or the change
+looks novel. A contribution is not ready for review until you have searched by
+the problem, subsystem, and visible symptoms, then inspected promising diffs
+and discussion. Searching and studying are read-only: no approval needed.
 
 ```bash
 gh search issues --owner mobius-os "<problem in a few words>" --limit 10
@@ -74,11 +78,22 @@ If the catalog already has the app, installing beats rebuilding; empty results
 are normal, not a broken search.
 
 On a hit, study it (`gh issue view <url> --comments`, `gh pr view <url> --json
-title,body,state,comments`, `gh pr diff <url>`), compare approaches concretely,
-and stage exactly ONE: a **comment** (their work is the right vehicle; findings
-first, then a concrete suggestion) or a **superseding PR** (yours covers more;
-body references the issue "Fixes #N" and explains the delta). No hit → stage a
-fresh PR or issue plan. Every outcome is STAGED for review (next), never posted.
+title,body,state,comments`, `gh pr diff <url>`), compare correctness, scope,
+tests, review state, and activity, then choose exactly ONE:
+
+- **Same sound fix:** do not prepare a duplicate PR. Stage a review/comment only
+  when you add evidence, a concrete suggestion, or a useful test result.
+- **Promising but incomplete:** prefer a review with specific suggestions. The
+  author's branch remains theirs; even when maintainer edits are enabled, do
+  not push to it without the partner's explicit approval for that public action.
+- **Your ready fix is materially stronger:** prepare a distinct PR that links
+  the earlier work, credits anything it uses, and explains the concrete delta.
+  Do not claim to deprecate or close someone else's PR; maintainers decide which
+  path supersedes another.
+- **No relevant hit:** prepare a fresh PR or issue plan normally.
+
+Record the search evidence in `plan.prior_work` (below) so the partner can see
+the decision inside Contribute. Every outcome is STAGED for review, never posted.
 
 ---
 
@@ -138,6 +153,8 @@ Contribute needs to submit it directly after approval:
 plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
        repo, target_url?, title?, body_draft, branch?, repo_path?,
        base_sha?, head_sha?, diff_sha256?, diff_stat,
+       prior_work?: {searched_at, query, decision, summary?, matches?},
+       labels?: [type, area?],
        stack?: {id, name?, position, total, parent_record_id, base_branch},
        diff_excerpt?}         # diff_stat REQUIRED; diff_excerpt legacy (unused)
 ```
@@ -154,6 +171,26 @@ plan: {action: pr|issue|issue_comment|discussion_comment,  # mirrors record.type
 - `body_draft` is the FULL text you propose to publish — PR body, issue body, or
   comment, word for word. The partner reviews exactly this; never publish
   anything that differs from what they approved.
+- `prior_work` is private review evidence, not text that is published. Set
+  `searched_at` to the UTC scan time, `query` to the concise terms used, and
+  `decision` to exactly one of `none`, `comment`, `collaborate`, or
+  `distinct_pr`. `summary` is one plain sentence explaining why. `matches` is
+  the small relevant subset (normally at most five), each shaped as
+  `{url, title?, relation?, note?}` with a GitHub URL. When the decision is
+  `distinct_pr`, the public `body_draft` must also reference the relevant prior
+  work and explain the improvement; the private evidence does not replace that.
+- `labels` is the small, reviewed GitHub classification proposed for a PR. List
+  **one type** and optionally **one area**—never more than two total. Prefer the
+  repository's existing taxonomy: inspect it with
+  `gh label list -R <owner>/<repo> --limit 100` before staging. For Möbius repos,
+  use exactly one of `bug`, `enhancement`, `documentation`, or `maintenance`,
+  plus at most one of `area: ui`, `area: backend`, `area: apps`, or
+  `area: infrastructure`. A visual defect is `bug` + `area: ui`; a new interface
+  is `enhancement` + `area: ui`. Do not use workflow/status labels such as
+  `help wanted`, `duplicate`, or `wontfix` on an already-prepared PR. Contribute
+  shows these labels in Details and only applies names that still exist in the
+  target repository. Missing labels or insufficient permission leave the PR
+  open and unlabelled rather than changing the reviewed body or failing send.
 - For PRs, `repo_path` MUST be a durable git checkout under a staging root the
   platform accepts — `/data/contrib/<workspace>` (the primary durable staging
   root), `/data/apps/`, `/data/platform`, or the legacy `/data/contributions/`;
@@ -199,8 +236,9 @@ No agent turn is needed after that click. The platform endpoint:
    changing its default branch, then proves the upstream merge result still
    matches the exact reviewed diff (a diverged fork stops untouched),
 6. pushes the branch to the owner's fork,
-7. creates a review-ready PR with the approved `title` and `body_draft`, and
-8. records `url`, `number`, and `status: "open"` back into the ledger.
+7. creates a review-ready PR with the approved `title` and `body_draft`,
+8. best-effort applies the reviewed `labels` that exist in the target repo, and
+9. records `url`, `number`, label outcome, and `status: "open"` in the ledger.
 
 If any preflight fails, the endpoint rolls the record back to `prepared` with
 `last_submit_error`; the partner can press Leave feedback to return to the
@@ -240,6 +278,22 @@ connected owner has `permissions.push` there. Without that permission, prepare
 independent fork PRs instead; never simulate a stack by publishing a cumulative
 diff that differs from the reviewed `.diff`.
 
+### Choose a stack by default for coherent dependent work
+
+Before preparing two or more PRs for one goal, explicitly decide whether they
+form a stack. Use a stack by default when every layer is independently coherent
+and later layers genuinely depend on earlier ones, or when an ordered split
+makes review substantially clearer. This lets CI start on the foundation and on
+the cumulative result at the same time.
+
+Do not manufacture layers from one indivisible fix just to obtain more CI, and
+do not stack unrelated changes: independent work should stay as independent PRs
+to `main` so one failure, review, or delay cannot block the others. A stack's
+direction is parent-first: PR A targets `main`; PR B targets A's upstream
+branch, so B's check covers A+B; PR C targets B, and so on. Mention the stack
+choice in `prior_work.summary` or the record summary when it helps the partner
+understand the review shape.
+
 ---
 
 ## Prepare the branch
@@ -256,9 +310,11 @@ directories, and still gives Contribute a durable path to verify. Put it at
 
 ### Prepare a linked PR stack
 
-Use a stack only when the changes have a real dependency or review order. Each
-layer is its own reviewed commit and its `.diff` is **incremental against the
-previous layer**, never the cumulative diff against `main`.
+Use a stack when the default decision above finds a real dependency or review
+order. Each layer is its own complete, reviewed commit and its `.diff` is
+**incremental against the previous layer**, never the cumulative diff against
+`main`. Each layer must remain a sensible review unit; put the tests needed to
+trust a layer in that layer rather than postponing all coverage to the end.
 
 1. Choose one privacy-safe stack id, for example `chat-settlement`. Every branch
    must start `stack/<stack-id>/`, followed by an ordered descriptive suffix:

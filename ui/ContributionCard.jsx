@@ -88,6 +88,92 @@ function PlanSummary({ rec }) {
   )
 }
 
+const PRIOR_WORK_DECISIONS = {
+  none: 'No overlapping work found',
+  comment: 'The existing discussion is the right place to contribute',
+  collaborate: 'Build on the active pull request',
+  distinct_pr: 'A distinct pull request is justified after comparison',
+}
+
+function PriorWorkEvidence({ priorWork }) {
+  if (!priorWork || typeof priorWork !== 'object') return null
+  const query = typeof priorWork.query === 'string' ? priorWork.query.trim() : ''
+  const summary = typeof priorWork.summary === 'string' ? priorWork.summary.trim() : ''
+  const decision = PRIOR_WORK_DECISIONS[priorWork.decision] || 'Related work was checked'
+  const matches = (Array.isArray(priorWork.matches) ? priorWork.matches : [])
+    .map((item) => typeof item === 'string' ? { url: item } : item)
+    .filter((item) => item && typeof item.url === 'string' &&
+      item.url.startsWith('https://github.com/'))
+  if (!query && !summary && matches.length === 0 && !priorWork.decision) return null
+
+  return (
+    <section className="co-prior-work" aria-label="Existing GitHub work checked">
+      <div className="co-prior-work-head">
+        <span className="co-prior-work-check" aria-hidden="true">✓</span>
+        <div>
+          <strong>Existing work checked</strong>
+          <span>{decision}</span>
+        </div>
+      </div>
+      {summary ? <p>{summary}</p> : null}
+      {query || matches.length > 0 ? (
+        <details className="co-prior-work-details">
+          <summary>
+            Search details
+            {matches.length > 0 ? ` · ${matches.length} relevant ${matches.length === 1 ? 'match' : 'matches'}` : ''}
+          </summary>
+          <div>
+            {query ? (
+              <div className="co-prior-work-query">
+                <span>Search</span>
+                <code>{query}</code>
+              </div>
+            ) : null}
+            {matches.length > 0 ? (
+              <ul className="co-prior-work-links">
+                {matches.slice(0, 5).map((item, index) => (
+                  <li key={item.url + index}>
+                    <a href={item.url} target="_blank" rel="noopener noreferrer">
+                      {typeof item.title === 'string' && item.title.trim()
+                        ? item.title.trim()
+                        : `Related GitHub work ${index + 1}`}
+                    </a>
+                    {typeof item.note === 'string' && item.note.trim()
+                      ? <span>{item.note.trim()}</span>
+                      : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {matches.length > 5 ? (
+              <span className="co-prior-work-more">+{matches.length - 5} more relevant links recorded</span>
+            ) : null}
+          </div>
+        </details>
+      ) : null}
+    </section>
+  )
+}
+
+function PlanLabels({ rec }) {
+  const requested = (Array.isArray(rec.plan?.labels) ? rec.plan.labels : [])
+    .filter((label) => typeof label === 'string' && label.trim())
+    .map((label) => label.trim())
+    .slice(0, 2)
+  const published = ['draft', 'open', 'merged', 'closed'].includes(rec.status)
+  const hasOutcome = Array.isArray(rec.last_submit_labels_applied)
+  const visible = published && hasOutcome ? rec.last_submit_labels_applied : requested
+  if (visible.length === 0) return null
+  return (
+    <section className="co-plan-labels" aria-label="GitHub labels">
+      <span>{published && hasOutcome ? 'Labels applied' : 'Labels'}</span>
+      <div>
+        {visible.map((label) => <span className="co-plan-label" key={label}>{label}</span>)}
+      </div>
+    </section>
+  )
+}
+
 // A persisted submit failure, shown as a real alert strip (not stray red text)
 // on the prepared card in both the collapsed and expanded states, so the reason
 // a Send bounced stays visible while the partner fixes it.
@@ -214,6 +300,8 @@ function ReviewPlan({ rec, loadDiff }) {
           <strong>Möbius Agent</strong>
         </div>
       ) : null}
+      <PriorWorkEvidence priorWork={plan.prior_work} />
+      <PlanLabels rec={rec} />
       {plan.body_draft ? (
         <section className="co-review-section">
           <div className="co-review-section-title">Description</div>
@@ -379,16 +467,20 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
           ) : isPr ? (
             <button
               type="button"
-              className="co-icon-btn co-send-btn is-primary"
+              className={'co-icon-btn co-send-btn is-primary' + (sending ? ' is-sending' : '')}
               disabled={sending}
               onClick={send}
+              aria-busy={sending}
               aria-label={sending ? 'Sending pull request' : 'Send pull request for review'}
               title="Send for review"
             >
-              {sending
-                ? <span className="co-action-spinner" aria-hidden="true" />
-                : <Icon name="send" />}
-              <span>{sending ? 'Sending…' : 'Send'}</span>
+              <Icon name="send" />
+              <span className="co-action-label">
+                <span>Send</span>
+                {sending ? (
+                  <span className="co-action-label-sweep" aria-hidden="true">Send</span>
+                ) : null}
+              </span>
             </button>
           ) : null}
           {!blocked ? (
