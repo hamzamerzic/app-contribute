@@ -91,7 +91,7 @@ function PlanSummary({ rec }) {
 // A persisted submit failure, shown as a real alert strip (not stray red text)
 // on the prepared card in both the collapsed and expanded states, so the reason
 // a Send bounced stays visible while the partner fixes it.
-function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
+function SubmitErrorAlert({ rec, reviewState }) {
   const blocked = reviewState?.state === 'needs_refresh'
   if (!blocked && (reviewState?.state === 'ready' || !rec.last_submit_error)) return null
   const message = blocked
@@ -104,29 +104,18 @@ function SubmitErrorAlert({ rec, reviewState, onFeedback }) {
   const code = reviewState?.code || (rec.last_submit_error ? 'previous_submit_failure' : '')
   const headline = problemHeadline(code)
 
-  function askAgent() {
-    if (typeof onFeedback !== 'function') return
-    onFeedback(rec, {
-      draft: `Please refresh contribution ${rec.id} ("${rec.title || 'untitled'}"). Contribute found: ${message}\n\n`,
-    })
-  }
-
   return (
     <div className="co-alert" role="status">
       <strong>{headline || (blocked ? 'Fresh review needed' : 'Could not send')}</strong>
+      <p className="co-alert-reassurance">Nothing was pushed. Your agent can update it safely.</p>
       {headline ? (
         <details className="co-alert-details">
-          <summary>Details</summary>
+          <summary>Technical details</summary>
           <p className="co-alert-text">{message}</p>
         </details>
       ) : (
         <p className="co-alert-text">{message}</p>
       )}
-      {typeof onFeedback === 'function' ? (
-        <button type="button" className="co-btn co-btn-sm" onClick={askAgent}>
-          Ask agent to refresh
-        </button>
-      ) : null}
       {typeof rec.last_pushed_branch_url === 'string' &&
         rec.last_pushed_branch_url.startsWith('https://github.com/') ? (
         <a
@@ -297,6 +286,8 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
       const outcome = (await onSend(rec)) || {}
       if (outcome.ok) {
         setSendNote('Pull request opened on GitHub for review.')
+      } else if (outcome.pending) {
+        setSendNote('Publishing is still in progress. Contribute will update this card when GitHub finishes.')
       } else {
         setNote(outcome.error || 'Could not submit this contribution.')
       }
@@ -342,7 +333,7 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
   }
 
   return (
-    <>
+    <div className="co-action-block">
       {confirmingDismiss ? (
         <div
           className="co-confirm"
@@ -376,18 +367,23 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
         </div>
       ) : (
         <div className="co-review-actions" aria-label="Contribution actions">
-          {isPr ? (
+          {blocked ? (
+            <button
+              type="button"
+              className="co-icon-btn co-refresh-btn is-primary"
+              onClick={feedback}
+            >
+              <Icon name="feedback" />
+              <span>Refresh in chat</span>
+            </button>
+          ) : isPr ? (
             <button
               type="button"
               className="co-icon-btn co-send-btn is-primary"
-              disabled={sending || blocked}
+              disabled={sending}
               onClick={send}
-              aria-label={sending
-                ? 'Sending pull request'
-                : blocked
-                  ? 'Fresh review required before sending'
-                  : 'Send pull request for review'}
-              title={blocked ? 'Fresh review required' : 'Send for review'}
+              aria-label={sending ? 'Sending pull request' : 'Send pull request for review'}
+              title="Send for review"
             >
               {sending
                 ? <span className="co-action-spinner" aria-hidden="true" />
@@ -395,15 +391,17 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
               <span>{sending ? 'Sending…' : 'Send'}</span>
             </button>
           ) : null}
-          <button
-            type="button"
-            className="co-icon-btn"
-            onClick={feedback}
-            aria-label={blocked ? 'Ask agent to refresh this review' : 'Give feedback'}
-            title={blocked ? 'Ask agent to refresh' : 'Give feedback'}
-          >
-            <Icon name="feedback" />
-          </button>
+          {!blocked ? (
+            <button
+              type="button"
+              className="co-icon-btn"
+              onClick={feedback}
+              aria-label="Give feedback"
+              title="Give feedback"
+            >
+              <Icon name="feedback" />
+            </button>
+          ) : null}
           <button
             type="button"
             className="co-icon-btn is-danger"
@@ -419,10 +417,6 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
         <p className="co-review-note">
           Only prepared PRs can be sent to GitHub from here right now.
         </p>
-      ) : blocked ? (
-        <p className="co-review-note">
-          Sending is paused until the updated version is reviewed again.
-        </p>
       ) : null}
       {sending && (
         <p className="co-review-note" role="status" aria-live="polite">
@@ -436,7 +430,7 @@ function ReviewActions({ rec, reviewState, onSend, onFeedback, onDismiss }) {
       {note && (
         <p className="co-review-error" role="status" aria-live="polite">{note}</p>
       )}
-    </>
+    </div>
   )
 }
 
@@ -496,7 +490,7 @@ export function ContributionCard({
 }) {
   const status = rec.status || 'prepared'
   const blocked = status === 'prepared' && reviewState?.state === 'needs_refresh'
-  const statusLabel = blocked ? 'Needs refresh' : (STATUS_LABELS[status] || status)
+  const statusLabel = blocked ? 'Needs update' : (STATUS_LABELS[status] || status)
   // The one plain-language line under the chip. A blocked card leads with its
   // SubmitErrorAlert instead, and an attention record with its callout, so both
   // suppress the calm lifecycle narration here.
@@ -527,10 +521,13 @@ export function ContributionCard({
       )
     )
   const hasPlan = reviewable && rec.plan && typeof rec.plan === 'object'
-  const displayTitle = hasPlan && rec.summary ? rec.summary : title
+  const displayTitle = hasPlan ? (rec.plan.title || title) : title
+  const planSummary = hasPlan && rec.summary && rec.summary !== displayTitle
+    ? rec.summary
+    : ''
 
   return (
-    <div className={`co-card${reviewOnly ? ' is-stack-layer' : ''}`}>
+    <div className={`co-card${blocked ? ' is-blocked' : ''}${reviewOnly ? ' is-stack-layer' : ''}`}>
       <div className="co-card-top">
         {hasLink ? (
           <a
@@ -547,6 +544,7 @@ export function ContributionCard({
         <span className={`co-chip is-${blocked ? 'needs-refresh' : status}`}>{statusLabel}</span>
       </div>
       {narration ? <p className="co-card-status">{narration}</p> : null}
+      {planSummary ? <p className="co-card-summary is-clamped">{planSummary}</p> : null}
       {!hasPlan && rec.summary ? <p className="co-card-summary">{rec.summary}</p> : null}
       {/* Non-plan cards keep the generic type · repo#number · time line; a
           prepared plan card carries its own repo · branch · time line inside
@@ -562,7 +560,7 @@ export function ContributionCard({
         </div>
       )}
       <AttentionCallout rec={rec} onFeedback={onFeedback} />
-      <SubmitErrorAlert rec={rec} reviewState={reviewState} onFeedback={onFeedback} />
+      <SubmitErrorAlert rec={rec} reviewState={reviewState} />
       {hasPlan && (
         <div className="co-card-footer">
           <button

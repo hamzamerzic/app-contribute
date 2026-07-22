@@ -29,6 +29,32 @@ test('keeps a persisted submit failure visible when a status is unavailable', ()
   assert.equal(state.code, 'previous_submit_failure')
 })
 
+test('a persisted remote submit blocker wins over a local ready verdict', () => {
+  const state = reviewStateFor({
+    id: 'stale',
+    status: 'prepared',
+    last_submit_error: 'This PR no longer merges cleanly with upstream main.',
+  }, {
+    state: 'ready',
+    byId: { stale: { state: 'ready', code: 'ready', message: 'Local checkout matches.' } },
+  })
+  assert.equal(state.state, 'needs_refresh')
+  assert.equal(state.code, 'upstream_conflict')
+})
+
+test('a fresh ready verdict wins over retryable persisted submit failures', () => {
+  for (const lastSubmitError of [
+    'Could not inspect fork state. Try Send again.',
+    'Could not submit this PR (500). Try Send again.',
+  ]) {
+    const ready = { state: 'ready', code: 'ready', message: 'Local checkout matches.' }
+    const state = reviewStateFor({
+      id: 'retryable', status: 'prepared', last_submit_error: lastSubmitError,
+    }, { state: 'ready', byId: { retryable: ready } })
+    assert.deepEqual(state, ready)
+  }
+})
+
 test('summarizes ready, blocked, and unchecked reviews', () => {
   const records = [
     { id: 'a', status: 'prepared' },

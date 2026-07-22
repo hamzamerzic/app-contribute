@@ -76,6 +76,9 @@ export function ContributionStack({
       if (outcome.ok) {
         setNote(`${outcome.submitted || ready.length} linked pull requests opened on GitHub.`)
         setConfirming(false)
+      } else if (outcome.pending) {
+        setNote('Publishing is still in progress for this chain. Contribute will update each change as it finishes.')
+        setConfirming(false)
       } else {
         setNote(outcome.error || 'Could not submit this PR stack.')
       }
@@ -218,7 +221,9 @@ export function ContributionStack({
       )}
       {note && (
         <p
-          className={note.includes('opened') ? 'co-review-note' : 'co-review-error'}
+          className={note.includes('opened') || note.startsWith('Publishing')
+            ? 'co-review-note'
+            : 'co-review-error'}
           role="status"
           aria-live="polite"
         >

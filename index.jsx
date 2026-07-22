@@ -24,8 +24,11 @@ import {
   applyLiveStates,
   buildRefreshQuery,
   groupRecords,
+  isSubmissionResolutionSettled,
   mergeRecordUpdates,
   reconcileLedgerSnapshot,
+  resolveUncertainSubmission,
+  summarizeSubmissionResolutions,
 } from './domain.js'
 import { indexReviewStatus } from './review.js'
 import { abandonPrepared, cacheFeed, loadFullDiff, loadLedger, restoreAbandoned } from './storage.js'
@@ -385,6 +388,49 @@ export default function ContributeApp({ appId, token }) {
       const next = { ...outcome.record, path: rec.path }
       applyRecordUpdates(next)
     }
+    if (outcome.uncertain) {
+      // The POST may have completed even though its response never reached the
+      // browser. Re-read the durable ledger instead of showing a raw network
+      // error or enabling a potentially duplicate retry. A short second read
+      // covers the common server-restart / connection-recovery boundary.
+      let resolution = { state: 'unconfirmed', record: null }
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450))
+        }
+        try {
+          resolution = resolveUncertainSubmission(rec, await loadLedger())
+        } catch {
+          resolution = { state: 'unconfirmed', record: null }
+        }
+        if (isSubmissionResolutionSettled(resolution)) break
+      }
+      if (resolution.record) {
+        const next = { ...resolution.record, path: rec.path }
+        applyRecordUpdates(next)
+        if (resolution.state === 'published') {
+          window.mobius?.signal?.('contribution_submitted', {
+            id: rec.id,
+            url: next.url || '',
+            reconciled: true,
+          })
+          refreshReviewStatus()
+          return { ok: true, record: next, url: next.url || '' }
+        }
+        if (resolution.state === 'publishing') {
+          refreshReviewStatus()
+          return { pending: true, record: next }
+        }
+        if (resolution.state === 'blocked') {
+          refreshReviewStatus()
+          return { error: 'Nothing was sent. This contribution needs an update before you try again.' }
+        }
+      }
+      refreshReviewStatus()
+      return {
+        error: 'We could not confirm the result. Reopen Contribute to check before trying again; a retry will not create a duplicate.',
+      }
+    }
     refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR.' }
   }, [appId, token, applyRecordUpdates, refreshReviewStatus])
@@ -410,6 +456,54 @@ export default function ContributeApp({ appId, token }) {
       })
       refreshReviewStatus()
       return { ok: true, submitted: outcome.submitted?.length || 0 }
+    }
+    if (outcome.uncertain) {
+      let resolutions = stackRecords.map(() => ({ state: 'unconfirmed', record: null }))
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) {
+          await new Promise((resolve) => window.setTimeout(resolve, 450))
+        }
+        try {
+          const ledger = await loadLedger()
+          resolutions = stackRecords.map((rec) => resolveUncertainSubmission(rec, ledger))
+        } catch {
+          resolutions = stackRecords.map(() => ({ state: 'unconfirmed', record: null }))
+        }
+        if (resolutions.every(isSubmissionResolutionSettled)) break
+      }
+      const durable = resolutions.flatMap((item, index) => item.record
+        ? [{ ...item.record, path: stackRecords[index].path }]
+        : [])
+      if (durable.length > 0) applyRecordUpdates(durable)
+      const summary = summarizeSubmissionResolutions(resolutions)
+      if (summary.state === 'published') {
+        window.mobius?.signal?.('contribution_stack_submitted', {
+          stack_id: stackRecords[0]?.plan?.stack?.id || '',
+          item_count: summary.published,
+          reconciled: true,
+        })
+        refreshReviewStatus()
+        return { ok: true, submitted: summary.published }
+      }
+      if (summary.state === 'publishing') {
+        refreshReviewStatus()
+        return {
+          pending: true,
+          publishing: summary.publishing,
+          published: summary.published,
+        }
+      }
+      refreshReviewStatus()
+      if (summary.blocked > 0) {
+        return {
+          error: summary.published > 0
+            ? 'Saved progress was restored. The remaining changes show what needs updating.'
+            : 'Nothing was sent. These changes need an update before you try again.',
+        }
+      }
+      return {
+        error: 'We could not confirm the result. Reopen Contribute to check before trying again; a retry will not create duplicates.',
+      }
     }
     refreshReviewStatus()
     return { error: outcome.error || 'Could not submit this PR stack.' }
@@ -547,7 +641,6 @@ export default function ContributeApp({ appId, token }) {
           >
             <SourceOverview
               projects={actionableProjects}
-              onOpen={openSourceProject}
               onViewAll={() => setView('sources')}
             />
             <ConnectionCard
