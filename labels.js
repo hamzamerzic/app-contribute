@@ -2,16 +2,25 @@ const PUBLISHED_STATUSES = new Set(['draft', 'open', 'merged', 'closed'])
 
 function normalizedLabels(value) {
   if (!Array.isArray(value)) return []
-  const labels = []
-  const seen = new Set()
+  // Match the reviewed UI/backend contract exactly: malformed and blank rows
+  // are invisible, then the first two visible strings form the review boundary.
+  // Validation and duplicate folding happen only inside that pair, so a hidden
+  // third label can never replace a visible-but-unusable value at publish time.
+  const visible = []
   for (const candidate of value) {
     if (typeof candidate !== 'string') continue
     const label = candidate.trim()
+    if (!label) continue
+    visible.push(label)
+    if (visible.length === 2) break
+  }
+  const labels = []
+  const seen = new Set()
+  for (const label of visible) {
     const key = label.toLowerCase()
-    if (!label || seen.has(key)) continue
+    if (label.length > 50 || label.includes('\n') || seen.has(key)) continue
     seen.add(key)
     labels.push(label)
-    if (labels.length === 2) break
   }
   return labels
 }

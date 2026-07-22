@@ -14,6 +14,15 @@ test('prepared records show only the two reviewed labels without claiming applic
   assert.equal(outcome.needsAttention, false)
 })
 
+test('the visible pair is capped before duplicate folding like core submit', () => {
+  const outcome = contributionLabelOutcome({
+    status: 'prepared',
+    plan: { labels: ['bug', 'BUG', 'area: ui'] },
+  })
+
+  assert.deepEqual(outcome.requested, ['bug'])
+})
+
 test('a fully applied published outcome is confirmed and needs no intervention', () => {
   const outcome = contributionLabelOutcome({
     status: 'open',

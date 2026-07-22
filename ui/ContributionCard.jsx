@@ -156,8 +156,7 @@ function PriorWorkEvidence({ priorWork }) {
   )
 }
 
-function PlanLabels({ rec }) {
-  const outcome = contributionLabelOutcome(rec)
+function PlanLabels({ rec, outcome = contributionLabelOutcome(rec) }) {
   if (outcome.empty) return null
   const githubUrl = typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
     ? rec.url
@@ -660,6 +659,9 @@ export function ContributionCard({
   const title = rec.title || where || 'Untitled contribution'
   const hasLink =
     typeof rec.url === 'string' && rec.url.startsWith('https://github.com/')
+  const labelOutcome = contributionLabelOutcome(rec)
+  const showPublishedLabelOutcome = labelOutcome.published &&
+    labelOutcome.hasOutcome && !labelOutcome.empty
   const reviewable =
     status === 'prepared' && (
       reviewOnly || (
@@ -707,6 +709,9 @@ export function ContributionCard({
       )}
       <AttentionCallout rec={rec} onFeedback={onFeedback} />
       <SubmitErrorAlert rec={rec} reviewState={reviewState} />
+      {showPublishedLabelOutcome ? (
+        <PlanLabels rec={rec} outcome={labelOutcome} />
+      ) : null}
       {hasPlan && (
         <div className="co-card-footer">
           <button
