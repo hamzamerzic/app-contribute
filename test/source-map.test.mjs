@@ -54,6 +54,71 @@ test('tree equality wins over bookkeeping-only ahead history', () => {
   assert.equal(projectMatchesFilter(contribute, 'changed'), false)
 })
 
+test('installed apps ignore full-repository origin projections', () => {
+  const projects = attachSourceProjects({
+    platform: null,
+    apps: [{
+      key: 'app:66', kind: 'app', name: 'Notes', available: true,
+      canonical_repo: 'mobius-os/app-notes', state: 'aligned',
+      branch: 'main', base_ref: 'upstream', version: '1.2.33',
+      ahead: 1, behind: 0,
+      tree: {
+        available: true, files: 0, authored_files: 0, managed_files: 0,
+        paths: [],
+      },
+      origin: {
+        ref: 'origin/main', local_ahead: 59, local_behind: 88,
+        local_tree: {
+          available: true, files: 75, authored_files: 74, managed_files: 1,
+          paths: [{ path: 'src/app.jsx', group: 'authored', deletions: 805 }],
+        },
+      },
+      working: { available: true, files: 0, paths: [] },
+    }],
+  }, [])
+  const notes = projects[0]
+
+  assert.equal(notes.different, false)
+  assert.equal(notes.authoredFiles, 0)
+  assert.equal(notes.originBehind, 0)
+  assert.equal(notes.attention, false)
+  assert.equal(projectStatus(notes).label, 'Aligned')
+  assert.equal(projectOverview(notes), null)
+  assert.equal(projectAgentAction(notes), null)
+  assert.equal(projectMatchesFilter(notes, 'changed'), false)
+})
+
+test('installed apps still surface genuine local work plus a release update', () => {
+  const projects = attachSourceProjects({
+    platform: null,
+    apps: [{
+      key: 'app:7', kind: 'app', name: 'Demo', available: true,
+      canonical_repo: 'mobius-os/app-demo', state: 'diverged',
+      branch: 'main', base_ref: 'upstream', version: '2.0.0',
+      ahead: 2, behind: 1,
+      tree: {
+        available: true, files: 1, authored_files: 1, managed_files: 0,
+        paths: [{ path: 'index.jsx', group: 'authored', insertions: 2, deletions: 1 }],
+      },
+      origin: {
+        ref: 'origin/main', local_ahead: 200, local_behind: 300,
+        local_tree: {
+          available: true, files: 40, authored_files: 40, managed_files: 0,
+        },
+      },
+      working: { available: true, files: 0, paths: [] },
+    }],
+  }, [])
+  const demo = projects[0]
+
+  assert.equal(demo.authoredFiles, 1)
+  assert.equal(demo.originBehind, 1)
+  assert.equal(demo.attention, true)
+  assert.equal(projectStatus(demo).label, 'Both sides changed')
+  assert.equal(projectOverview(demo).label, 'Both versions changed')
+  assert.equal(projectAgentAction(demo).event, 'resolve_source_state')
+})
+
 test('active records for an uninstalled repo stay visible', () => {
   const projects = attachSourceProjects(snapshot, [{
     id: 'other', type: 'pr', repo: 'mobius-os/app-gone', status: 'open', title: 'Still open',
