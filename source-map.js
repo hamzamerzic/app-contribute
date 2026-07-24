@@ -82,13 +82,29 @@ export function attachSourceProjects(snapshot, records) {
 
 function decorateProject(project, contributions) {
   const workingFiles = Number(project?.working?.files || 0)
-  const comparisonTree = project?.origin?.local_tree || project?.tree
+  // Installed apps are release projections, not full development checkouts.
+  // Their authoritative local delta is against installer-owned `upstream`;
+  // comparing them with origin can make omitted tests/docs/source look like
+  // thousands of owner-authored deletions. Only the platform is a full clone
+  // whose local/origin tree and ancestry describe the same source surface.
+  const compareWithOrigin = project?.kind === 'platform'
+  const comparisonTree = compareWithOrigin
+    ? (project?.origin?.local_tree || project?.tree)
+    : project?.tree
   const authoredFiles = Number(
     comparisonTree?.authored_files ?? comparisonTree?.files ?? 0,
   )
   const managedFiles = Number(comparisonTree?.managed_files || 0)
-  const originAhead = Number(project?.origin?.local_ahead ?? project?.ahead ?? 0)
-  const originBehind = Number(project?.origin?.local_behind ?? project?.behind ?? 0)
+  const originAhead = Number(
+    compareWithOrigin
+      ? (project?.origin?.local_ahead ?? project?.ahead ?? 0)
+      : (project?.ahead ?? 0),
+  )
+  const originBehind = Number(
+    compareWithOrigin
+      ? (project?.origin?.local_behind ?? project?.behind ?? 0)
+      : (project?.behind ?? 0),
+  )
   const different = authoredFiles > 0
   const forks = projectForks(project, contributions)
   const contributionAttention = contributions.some((rec) => rec.needs_attention)

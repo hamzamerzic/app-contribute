@@ -51,15 +51,20 @@ function ProjectFlow({ project }) {
   const reviewAttention = contributions.some((rec) => rec.needs_attention)
   const chains = groupContributionUnits(contributions).filter((unit) => unit.type === 'stack').length
   const sourceName = project.canonical_repo || 'Shared source'
-  const sourceRef = project.origin?.ref || project.base_ref || 'shared main'
+  const installedRelease = project.kind === 'app' && project.base_ref === 'upstream'
+  const sourceRef = installedRelease
+    ? `Full source · release ${project.version || 'installed'}`
+    : `${project.origin?.ref || project.base_ref || 'shared main'} · last fetched`
   const localBranch = project.branch || (project.detached ? 'detached' : 'main')
   const localBits = [
-    localBranch,
+    installedRelease && project.version ? `v${project.version}` : localBranch,
     project.originBehind > 0 ? `${project.originBehind} incoming` : '',
     project.authoredFiles > 0 ? countLabel(project.authoredFiles, 'changed file') : '',
     project.workingFiles > 0 ? countLabel(project.workingFiles, 'file being edited', 'files being edited') : '',
     !project.authoredFiles && !project.workingFiles && project.managedFiles > 0 ? 'safe install adjustments only' : '',
-    !project.authoredFiles && !project.workingFiles && !project.managedFiles ? 'source matches' : '',
+    !project.authoredFiles && !project.workingFiles && !project.managedFiles
+      ? (installedRelease ? 'installed files match release' : 'source matches')
+      : '',
   ].filter(Boolean)
   const forks = project.forks?.length || 0
   const reviewBits = [
@@ -75,7 +80,7 @@ function ProjectFlow({ project }) {
     >
       <div className="co-observe-node is-source">
         <span className="co-observe-icon" aria-hidden="true">◎</span>
-        <div><span>Shared source</span><strong>{sourceName}</strong><small>{sourceRef} · latest checked</small></div>
+        <div><span>Shared source</span><strong>{sourceName}</strong><small>{sourceRef}</small></div>
       </div>
       <div className="co-observe-edge" aria-hidden="true"><span /><i>→</i></div>
       <div className={'co-observe-node is-local tone-' + status.tone}>
@@ -100,8 +105,13 @@ function shortCommit(value) {
 }
 
 function ProjectPosition({ project }) {
-  const sharedSha = project.origin?.sha || project.base_sha
-  const sharedRef = project.origin?.ref || project.base_ref || 'Not configured'
+  const installedRelease = project.kind === 'app' && project.base_ref === 'upstream'
+  const sharedSha = installedRelease
+    ? project.base_sha
+    : (project.origin?.sha || project.base_sha)
+  const sharedRef = installedRelease
+    ? `installed release (${project.base_ref})`
+    : (project.origin?.ref || project.base_ref || 'Not configured')
   return (
     <details className="co-position-details">
       <summary>
@@ -114,7 +124,7 @@ function ProjectPosition({ project }) {
         {project.state !== 'local_only' ? (
           <>
             <div><dt>Compared with</dt><dd><code>{sharedRef}</code></dd></div>
-            <div><dt>Shared commit</dt><dd><code>{shortCommit(sharedSha)}</code></dd></div>
+            <div><dt>{installedRelease ? 'Release commit' : 'Shared commit'}</dt><dd><code>{shortCommit(sharedSha)}</code></dd></div>
           </>
         ) : null}
         {project.canonical_repo ? (
@@ -328,7 +338,9 @@ function ProjectDetail({ project, onAskAgent }) {
                 ? 'A newer shared version is available.'
                 : project.different
                   ? 'Your Möbius includes changes that are not in the shared version.'
-                  : 'Your version matches the shared source.'
+                  : project.kind === 'app'
+                    ? 'Your installed app has no local changes.'
+                    : 'Your version matches the shared source.'
   const agentAction = projectAgentAction(project)
 
   function askAgent() {
